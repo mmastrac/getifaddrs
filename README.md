@@ -1,4 +1,4 @@
-# ifaddrs
+# getifaddrs
 
 A cross-platform library for retrieving network interface information.
 
@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ifaddrs = "0.1"
+getifaddrs = "0.1"
 ```
 
 ## Example
