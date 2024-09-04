@@ -66,7 +66,7 @@ enum AddressFilterCriteria {
 ///
 /// ```
 /// # use std::io;
-/// # use ifaddrs::InterfaceFilter;
+/// # use getifaddrs::InterfaceFilter;
 /// # fn main() -> io::Result<()> {
 /// // Get all IPv4 interfaces
 /// let v4_interfaces = InterfaceFilter::new().v4().get()?;
@@ -741,7 +741,7 @@ pub fn getifaddrs() -> std::io::Result<impl Iterator<Item = Interface>> {
 /// # Examples
 ///
 /// ```
-/// match ifaddrs::if_indextoname(1) {
+/// match getifaddrs::if_indextoname(1) {
 ///     Ok(name) => println!("Interface name: {}", name),
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
@@ -774,7 +774,7 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 /// # Examples
 ///
 /// ```
-/// match ifaddrs::if_nametoindex("eth0") {
+/// match getifaddrs::if_nametoindex("eth0") {
 ///     Ok(index) => println!("Interface index: {}", index),
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }

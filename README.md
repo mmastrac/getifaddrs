@@ -24,7 +24,7 @@ ifaddrs = "0.1"
 ## Example
 
 ```rust
-use ifaddrs::{getifaddrs, InterfaceFlags};
+use getifaddrs::{getifaddrs, InterfaceFlags};
 
 fn main() -> std::io::Result<()> {
     for interface in getifaddrs()? {
