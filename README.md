@@ -11,6 +11,7 @@ and Windows.
 - Retrieve network interface information (name, IP address, netmask, flags, etc.)
 - Filter interfaces based on various criteria (loopback, IPv4/IPv6, name, index)
 - Cross-platform support (Unix-like systems and Windows)
+- Provides a cross-platform implementation of [`if_indextoname`](https://docs.rs/getifaddrs/latest/getifaddrs/fn.if_indextoname.html) and [`if_nametoindex`](https://docs.rs/getifaddrs/latest/getifaddrs/fn.if_nametoindex.html)
 
 ## Usage
 
