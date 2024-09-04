@@ -322,7 +322,7 @@ mod unix {
         }
     }
 
-    pub fn _if_nametoindex(name: impl AsRef<str>) -> std::io::Result<usize> {
+    pub fn _if_nametoindex(name: impl AsRef<str>) -> std::io::Result<u32> {
         let name_cstr = std::ffi::CString::new(name.as_ref()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid interface name")
         })?;
@@ -330,7 +330,7 @@ mod unix {
         if result == 0 {
             Err(std::io::Error::last_os_error())
         } else {
-            Ok(result as usize)
+            Ok(result as _)
         }
     }
 }
@@ -699,7 +699,7 @@ mod windows {
         }
     }
 
-    pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<usize> {
+    pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<u32> {
         use std::ffi::CString;
         let name_cstr = CString::new(name.as_ref())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid interface name"))?;
@@ -707,7 +707,7 @@ mod windows {
         if result == 0 {
             Err(io::Error::last_os_error())
         } else {
-            Ok(result as usize)
+            Ok(result as _)
         }
     }
 }
@@ -779,7 +779,12 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
 /// ```
-pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<usize> {
+pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<u32> {
+    // Any index that can parse as u32 is returned as-is
+    if let Ok(num) = name.as_ref().parse::<u32>() {
+        return Ok(num as _);
+    }
+
     #[cfg(unix)]
     {
         unix::_if_nametoindex(name)
@@ -830,7 +835,7 @@ mod tests {
 
                 let index_from_name = if_nametoindex(&interface.name).unwrap_or_default();
                 assert_eq!(
-                    index as usize, index_from_name,
+                    index, index_from_name,
                     "Interface index mismatch for name {}",
                     interface.name
                 );
