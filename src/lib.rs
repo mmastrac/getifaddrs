@@ -759,7 +759,7 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 
 /// Converts a network interface name to its corresponding index.
 ///
-/// This function takes a network interface name and returns the corresponding interface index.
+/// This function takes a network interface name or number and returns the corresponding interface index.
 ///
 /// # Arguments
 ///
