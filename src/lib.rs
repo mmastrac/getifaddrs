@@ -37,6 +37,8 @@ pub struct Interface {
     pub address: std::net::IpAddr,
     /// The netmask of the interface, if available.
     pub netmask: Option<std::net::IpAddr>,
+    /// The destination of the interface, if available.
+    pub dest_addr: Option<std::net::IpAddr>,
     /// The flags indicating the interface's properties and state.
     pub flags: InterfaceFlags,
     /// The index of the interface, if available.
@@ -264,10 +266,18 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
+                        let dest_addr = unsafe {
+                            ifaddr
+                                .ifa_dstaddr
+                                .as_ref()
+                                .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
+                        };
+
                         return Some(Interface {
                             name,
                             address,
                             netmask,
+                            dest_addr,
                             flags,
                             index,
                         });
@@ -616,6 +626,7 @@ mod windows {
             description,
             address,
             netmask,
+            dest_addr: None,
             flags,
             index,
         })
