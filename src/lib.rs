@@ -266,12 +266,16 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
+                        #[cfg(not(target_os = "linux"))]
                         let dest_addr = unsafe {
                             ifaddr
                                 .ifa_dstaddr
                                 .as_ref()
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
+
+                        #[cfg(target_os = "linux")]
+                        let dest_addr = None;
 
                         return Some(Interface {
                             name,
