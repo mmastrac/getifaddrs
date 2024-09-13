@@ -35,6 +35,12 @@ pub struct Interface {
     pub description: String,
     /// The IP address associated with the interface.
     pub address: std::net::IpAddr,
+    // TODO: This may be implementable for Windows.
+    #[cfg(not(windows))]
+    /// The associated address of the interface. For broadcast interfaces, this
+    /// is the broadcast address. For point-to-point interfaces, this is the
+    /// peer address.
+    pub associated_address: Option<std::net::IpAddr>,
     /// The netmask of the interface, if available.
     pub netmask: Option<std::net::IpAddr>,
     /// The flags indicating the interface's properties and state.
@@ -264,9 +270,28 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
+                        // https://docs.rs/libc/latest/aarch64-unknown-linux-gnu/libc/struct.ifaddrs.html
+                        #[cfg(target_os = "linux")]
+                        let associated_address = unsafe {
+                            ifaddr
+                                .ifa_ifu
+                                .as_ref()
+                                .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
+                        };
+
+                        // https://docs.rs/libc/latest/aarch64-unknown-openbsd/libc/struct.ifaddrs.html
+                        #[cfg(not(target_os = "linux"))]
+                        let associated_address = unsafe {
+                            ifaddr
+                                .ifa_dstaddr
+                                .as_ref()
+                                .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
+                        };
+
                         return Some(Interface {
                             name,
                             address,
+                            associated_address,
                             netmask,
                             flags,
                             index,
