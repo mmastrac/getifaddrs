@@ -396,10 +396,12 @@ mod windows {
                 None => Family::UNSPEC,
             };
             let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
+            let current = adapters.buf.ptr;
+            let current_unicast = unsafe { (*current).FirstUnicastAddress };
             Ok(InterfaceIterator {
                 adapters,
-                current: std::ptr::null(),
-                current_unicast: std::ptr::null(),
+                current,
+                current_unicast,
                 filter,
             })
         }
@@ -408,11 +410,11 @@ mod windows {
         type Item = Interface;
 
         fn next(&mut self) -> Option<Self::Item> {
+            if self.current.is_null() {
+                return None;
+            }
             loop {
-                if self.current.is_null() {
-                    self.current = self.adapters.buf.ptr;
-                    self.current_unicast = std::ptr::null();
-                } else if self.current_unicast.is_null() {
+                if self.current_unicast.is_null() {
                     self.current = unsafe { (*self.current).Next };
                     if self.current.is_null() {
                         return None;
