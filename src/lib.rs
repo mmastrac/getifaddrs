@@ -396,26 +396,34 @@ mod windows {
                 None => Family::UNSPEC,
             };
             let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
+            let current = adapters.buf.ptr;
+            let current_unicast = unsafe { (*current).FirstUnicastAddress };
             Ok(InterfaceIterator {
                 adapters,
-                current: std::ptr::null(),
-                current_unicast: std::ptr::null(),
+                current,
+                current_unicast,
                 filter,
             })
         }
-    }
-    impl Iterator for InterfaceIterator {
-        type Item = Interface;
 
-        fn next(&mut self) -> Option<Self::Item> {
+        /// Advance to the next record.
+        fn advance(
+            &mut self,
+        ) -> Option<(
+            *const IP_ADAPTER_ADDRESSES_LH,
+            *const IP_ADAPTER_UNICAST_ADDRESS_LH,
+        )> {
+            // Wedge this iterator at the end
+            if self.current.is_null() {
+                return None;
+            }
+            let current = self.current;
+            let current_unicast = self.current_unicast;
             loop {
-                if self.current.is_null() {
-                    self.current = self.adapters.buf.ptr;
-                    self.current_unicast = std::ptr::null();
-                } else if self.current_unicast.is_null() {
+                if self.current_unicast.is_null() {
                     self.current = unsafe { (*self.current).Next };
                     if self.current.is_null() {
-                        return None;
+                        return Some((current, current_unicast));
                     }
                     self.current_unicast = unsafe { (*self.current).FirstUnicastAddress };
                 } else {
@@ -426,8 +434,19 @@ mod windows {
                     continue;
                 }
 
-                let adapter = unsafe { &*self.current };
-                let unicast_addr = unsafe { &*self.current_unicast };
+                return Some((current, current_unicast));
+            }
+        }
+    }
+
+    impl Iterator for InterfaceIterator {
+        type Item = Interface;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                let (current, current_unicast) = self.advance()?;
+                let adapter = unsafe { &*current };
+                let unicast_addr = unsafe { &*current_unicast };
 
                 if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
                     if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
@@ -883,11 +902,26 @@ mod tests {
         for interface in InterfaceFilter::new().v6().get().unwrap() {
             assert!(
                 interface.address.is_ipv6(),
-                "Expected v4 only: {interface:#?}"
+                "Expected v6 only: {interface:#?}"
             );
             v6_count += 1;
         }
-        assert_eq!(v4_count + v6_count, total);
+        assert_eq!(
+            v4_count + v6_count,
+            total,
+            "v4 = {:?} v6 = {:?} all = {:?}",
+            InterfaceFilter::new()
+                .v4()
+                .get()
+                .unwrap()
+                .collect::<Vec<_>>(),
+            InterfaceFilter::new()
+                .v6()
+                .get()
+                .unwrap()
+                .collect::<Vec<_>>(),
+            getifaddrs().unwrap().collect::<Vec<_>>()
+        );
     }
 
     #[test]
