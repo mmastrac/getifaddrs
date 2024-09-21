@@ -444,9 +444,7 @@ mod windows {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
-                let Some((current, current_unicast)) = self.advance() else {
-                    return None;
-                };
+                let (current, current_unicast) = self.advance()?;
                 let adapter = unsafe { &*current };
                 let unicast_addr = unsafe { &*current_unicast };
 
