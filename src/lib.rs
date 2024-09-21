@@ -405,19 +405,22 @@ mod windows {
                 filter,
             })
         }
-    }
-    impl Iterator for InterfaceIterator {
-        type Item = Interface;
 
-        fn next(&mut self) -> Option<Self::Item> {
+        /// Advance to the next record.
+        fn advance(
+            &mut self,
+        ) -> Option<*const IP_ADAPTER_ADDRESSES_LH, *const IP_ADAPTER_UNICAST_ADDRESS_LH> {
+            // Wedge this iterator at the end
             if self.current.is_null() {
                 return None;
             }
+            let current = self.current;
+            let current_unicast = self.current_unicast;
             loop {
                 if self.current_unicast.is_null() {
                     self.current = unsafe { (*self.current).Next };
                     if self.current.is_null() {
-                        return None;
+                        return Some((current, current_unicast));
                     }
                     self.current_unicast = unsafe { (*self.current).FirstUnicastAddress };
                 } else {
@@ -428,8 +431,21 @@ mod windows {
                     continue;
                 }
 
-                let adapter = unsafe { &*self.current };
-                let unicast_addr = unsafe { &*self.current_unicast };
+                return Some((current, current_unicast));
+            }
+        }
+    }
+
+    impl Iterator for InterfaceIterator {
+        type Item = Interface;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            loop {
+                let Some((current, current_unicast)) = self.advance() else {
+                    return None;
+                };
+                let adapter = unsafe { &*current };
+                let unicast_addr = unsafe { &*current_unicast };
 
                 if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
                     if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
