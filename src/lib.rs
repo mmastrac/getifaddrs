@@ -885,11 +885,26 @@ mod tests {
         for interface in InterfaceFilter::new().v6().get().unwrap() {
             assert!(
                 interface.address.is_ipv6(),
-                "Expected v4 only: {interface:#?}"
+                "Expected v6 only: {interface:#?}"
             );
             v6_count += 1;
         }
-        assert_eq!(v4_count + v6_count, total);
+        assert_eq!(
+            v4_count + v6_count,
+            total,
+            "v4 = {:?} v6 = {:?} all = {:?}",
+            InterfaceFilter::new()
+                .v4()
+                .get()
+                .unwrap()
+                .collect::<Vec<_>>(),
+            InterfaceFilter::new()
+                .v6()
+                .get()
+                .unwrap()
+                .collect::<Vec<_>>(),
+            getifaddrs().unwrap().collect::<Vec<_>>()
+        );
     }
 
     #[test]
