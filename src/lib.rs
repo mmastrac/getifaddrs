@@ -409,7 +409,10 @@ mod windows {
         /// Advance to the next record.
         fn advance(
             &mut self,
-        ) -> Option<*const IP_ADAPTER_ADDRESSES_LH, *const IP_ADAPTER_UNICAST_ADDRESS_LH> {
+        ) -> Option<(
+            *const IP_ADAPTER_ADDRESSES_LH,
+            *const IP_ADAPTER_UNICAST_ADDRESS_LH,
+        )> {
             // Wedge this iterator at the end
             if self.current.is_null() {
                 return None;
