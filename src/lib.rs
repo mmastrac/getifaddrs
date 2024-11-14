@@ -271,7 +271,7 @@ mod unix {
                         };
 
                         // https://docs.rs/libc/latest/aarch64-unknown-linux-gnu/libc/struct.ifaddrs.html
-                        #[cfg(target_os = "linux")]
+                        #[cfg(any(target_os = "linux", target_os = "android"))]
                         let associated_address = unsafe {
                             ifaddr
                                 .ifa_ifu
@@ -280,7 +280,7 @@ mod unix {
                         };
 
                         // https://docs.rs/libc/latest/aarch64-unknown-openbsd/libc/struct.ifaddrs.html
-                        #[cfg(not(target_os = "linux"))]
+                        #[cfg(not(any(target_os = "linux", target_os = "android")))]
                         let associated_address = unsafe {
                             ifaddr
                                 .ifa_dstaddr
