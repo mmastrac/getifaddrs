@@ -1,6 +1,6 @@
 [package]
 name = "getifaddrs"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "A cross-platform library for retrieving network interface information"
 authors = ["Matt Mastracci <matthew@mastracci.com>"]
