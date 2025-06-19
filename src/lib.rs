@@ -1,6 +1,9 @@
 #![doc=include_str!("../README.md")]
 use bitflags::bitflags;
 
+/// This represents the index of a network interface.
+pub type InterfaceIndex = u32;
+
 bitflags! {
     /// Flags representing the status and capabilities of a network interface.
     ///
@@ -46,12 +49,12 @@ pub struct Interface {
     /// The flags indicating the interface's properties and state.
     pub flags: InterfaceFlags,
     /// The index of the interface, if available.
-    pub index: Option<u32>,
+    pub index: Option<InterfaceIndex>,
 }
 
 enum InterfaceFilterCriteria {
     Loopback,
-    Index(u32),
+    Index(InterfaceIndex),
     Name(String),
 }
 
@@ -104,7 +107,7 @@ impl InterfaceFilter {
     }
 
     /// Filters for interfaces with the specified index.
-    pub fn index(mut self, index: u32) -> Self {
+    pub fn index(mut self, index: InterfaceIndex) -> Self {
         self.criteria = Some(InterfaceFilterCriteria::Index(index));
         self
     }
@@ -148,6 +151,7 @@ impl InterfaceFilter {
 mod unix {
     use super::{
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        InterfaceIndex,
     };
     use libc::{self, c_int};
     use std::ffi::CStr;
@@ -211,23 +215,24 @@ mod unix {
 
                         let flags = {
                             let mut flags = InterfaceFlags::empty();
-                            let raw_flags: c_int = ifaddr.ifa_flags as _;
-                            if raw_flags & libc::IFF_UP != 0 {
+                            // Platforms have varying size for ifa_flags, so just work in usize
+                            let raw_flags = ifaddr.ifa_flags as usize;
+                            if raw_flags & (libc::IFF_UP as usize) != 0 {
                                 flags |= InterfaceFlags::UP;
                             }
-                            if raw_flags & libc::IFF_RUNNING != 0 {
+                            if raw_flags & (libc::IFF_RUNNING as usize) != 0 {
                                 flags |= InterfaceFlags::RUNNING;
                             }
-                            if raw_flags & libc::IFF_LOOPBACK != 0 {
+                            if raw_flags & (libc::IFF_LOOPBACK as usize) != 0 {
                                 flags |= InterfaceFlags::LOOPBACK;
                             }
-                            if raw_flags & libc::IFF_POINTOPOINT != 0 {
+                            if raw_flags & (libc::IFF_POINTOPOINT as usize) != 0 {
                                 flags |= InterfaceFlags::POINTTOPOINT;
                             }
-                            if raw_flags & libc::IFF_BROADCAST != 0 {
+                            if raw_flags & (libc::IFF_BROADCAST as usize) != 0 {
                                 flags |= InterfaceFlags::BROADCAST;
                             }
-                            if raw_flags & libc::IFF_MULTICAST != 0 {
+                            if raw_flags & (libc::IFF_MULTICAST as usize) != 0 {
                                 flags |= InterfaceFlags::MULTICAST;
                             }
                             flags
@@ -242,7 +247,7 @@ mod unix {
                         let index = unsafe {
                             let index = libc::if_nametoindex(ifaddr.ifa_name);
                             if index != 0 {
-                                Some(index as u32)
+                                Some(index as InterfaceIndex)
                             } else {
                                 None
                             }
@@ -328,7 +333,7 @@ mod unix {
         }
     }
 
-    pub fn _if_indextoname(index: usize) -> std::io::Result<String> {
+    pub fn _if_indextoname(index: InterfaceIndex) -> std::io::Result<String> {
         let mut buffer = vec![0u8; libc::IF_NAMESIZE];
         let result = unsafe {
             libc::if_indextoname(
@@ -347,7 +352,7 @@ mod unix {
         }
     }
 
-    pub fn _if_nametoindex(name: impl AsRef<str>) -> std::io::Result<u32> {
+    pub fn _if_nametoindex(name: impl AsRef<str>) -> std::io::Result<InterfaceIndex> {
         let name_cstr = std::ffi::CString::new(name.as_ref()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid interface name")
         })?;
@@ -364,6 +369,7 @@ mod unix {
 mod windows {
     use super::{
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        InterfaceIndex,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
     use windows_sys::Win32::Foundation::{
@@ -382,6 +388,7 @@ mod windows {
     const IF_NAMESIZE: usize = 1024;
 
     pub struct InterfaceIterator {
+        #[allow(unused)]
         adapters: AdaptersAddresses,
         current: *const IP_ADAPTER_ADDRESSES_LH,
         current_unicast: *const IP_ADAPTER_UNICAST_ADDRESS_LH,
@@ -569,7 +576,7 @@ mod windows {
                     ERROR_NO_DATA => {
                         return Err(io::Error::new(io::ErrorKind::NotFound, "No data"))
                     }
-                    _ => return Err(io::Error::new(io::ErrorKind::Other, "Unknown error")),
+                    other => return Err(io::Error::other(format!("GetAdaptersAddresses failed: {other:x}"))),
                 }
             }
         }
@@ -729,9 +736,9 @@ mod windows {
             flags.0
         }
     }
-    pub fn _if_indextoname(index: usize) -> io::Result<String> {
+    pub fn _if_indextoname(index: InterfaceIndex) -> io::Result<String> {
         let mut buffer = vec![0u8; IF_NAMESIZE]; // Allocate buffer for narrow string
-        let result = unsafe { if_indextoname(index as u32, buffer.as_mut_ptr()) };
+        let result = unsafe { if_indextoname(index as _, buffer.as_mut_ptr()) };
         if result.is_null() {
             Err(io::Error::last_os_error())
         } else {
@@ -743,7 +750,7 @@ mod windows {
         }
     }
 
-    pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<u32> {
+    pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<InterfaceIndex> {
         use std::ffi::CString;
         let name_cstr = CString::new(name.as_ref())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid interface name"))?;
@@ -790,7 +797,7 @@ pub fn getifaddrs() -> std::io::Result<impl Iterator<Item = Interface>> {
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
 /// ```
-pub fn if_indextoname(index: usize) -> std::io::Result<String> {
+pub fn if_indextoname(index: InterfaceIndex) -> std::io::Result<String> {
     #[cfg(unix)]
     {
         unix::_if_indextoname(index)
@@ -803,17 +810,18 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 
 /// Converts a network interface name to its corresponding index.
 ///
-/// This function takes a network interface name or number and returns the corresponding interface index.
+/// This function takes a string containing the network interface name or number
+/// and returns the corresponding interface index.
 ///
 /// # Arguments
 ///
-/// * `name` - The name of the network interface. This can be any type that can be converted
-///            to a string slice (`&str`).
+/// * `name`: The name of the network interface. This can be any type that can
+///   be converted to a string slice (`&str`).
 ///
 /// # Returns
 ///
-/// Returns a `Result` containing the interface index as a `usize` on success, or an `io::Error`
-/// if the conversion failed or the name is invalid.
+/// Returns a `Result` containing the interface index as a [`InterfaceIndex`] on
+/// success, or an `io::Error` if the conversion failed or the name is invalid.
 ///
 /// # Examples
 ///
@@ -823,19 +831,19 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
 /// ```
-pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<u32> {
-    // Any index that can parse as u32 is returned as-is
-    if let Ok(num) = name.as_ref().parse::<u32>() {
+pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<InterfaceIndex> {
+    // Any index that can parse as `InterfaceIndex` is returned as-is
+    if let Ok(num) = name.as_ref().parse::<InterfaceIndex>() {
         return Ok(num as _);
     }
 
     #[cfg(unix)]
     {
-        unix::_if_nametoindex(name)
+        unix::_if_nametoindex(name).map(|idx| idx as _)
     }
     #[cfg(windows)]
     {
-        windows::_if_nametoindex(name)
+        windows::_if_nametoindex(name).map(|idx| idx as _)
     }
 }
 
@@ -870,7 +878,7 @@ mod tests {
         // Sanity check that any interface with an index matches its name
         for interface in &interfaces {
             if let Some(index) = interface.index {
-                let name_from_index = if_indextoname(index as usize).unwrap_or_default();
+                let name_from_index = if_indextoname(index as _).unwrap_or_default();
                 assert_eq!(
                     interface.name, name_from_index,
                     "Interface name mismatch for index {}",

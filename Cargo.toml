@@ -1,8 +1,11 @@
 [package]
 name = "getifaddrs"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
-description = "A cross-platform library for retrieving network interface information"
+description = """
+A cross-platform library for retrieving network interface addresses and indices
+(getifaddrs, if_nametoindex, if_indextoname).
+"""
 authors = ["Matt Mastracci <matthew@mastracci.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mmastrac/getifaddrs"
@@ -10,13 +13,18 @@ keywords = ["network", "interface", "ifaddrs", "getifaddrs", "cross-platform"]
 categories = ["network-programming", "os::unix-apis", "os::windows-apis"]
 readme = "README.md"
 
+# NOTE: dependencies are approximately minimal
+
 [target.'cfg(windows)'.dependencies]
+# Uncertain of this minimum requirement
 windows-sys = { version = "0.59.0", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Foundation"] }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.158"
+# Approximately the minimal version required
+libc = "0.2.100"
 
 [dependencies]
-bitflags = "2.6.0"
+# Tested with minimal versions
+bitflags = "2.0.0"
 
 [lib]
