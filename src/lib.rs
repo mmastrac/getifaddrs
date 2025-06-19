@@ -576,7 +576,7 @@ mod windows {
                     ERROR_NO_DATA => {
                         return Err(io::Error::new(io::ErrorKind::NotFound, "No data"))
                     }
-                    other => return Err(io::Error::other(format!("GetAdaptersAddresses failed: {other:x}", other))),
+                    other => return Err(io::Error::other(format!("GetAdaptersAddresses failed: {other:x}"))),
                 }
             }
         }
