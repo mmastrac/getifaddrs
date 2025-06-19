@@ -876,7 +876,7 @@ mod tests {
         // Sanity check that any interface with an index matches its name
         for interface in &interfaces {
             if let Some(index) = interface.index {
-                let name_from_index = if_indextoname(index as usize).unwrap_or_default();
+                let name_from_index = if_indextoname(index as _).unwrap_or_default();
                 assert_eq!(
                     interface.name, name_from_index,
                     "Interface name mismatch for index {}",
