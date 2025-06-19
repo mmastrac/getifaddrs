@@ -153,7 +153,7 @@ mod unix {
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
         InterfaceIndex,
     };
-    use libc::{self, c_int};
+    use libc;
     use std::ffi::CStr;
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -576,7 +576,11 @@ mod windows {
                     ERROR_NO_DATA => {
                         return Err(io::Error::new(io::ErrorKind::NotFound, "No data"))
                     }
-                    other => return Err(io::Error::other(format!("GetAdaptersAddresses failed: {other:x}"))),
+                    other => {
+                        return Err(io::Error::other(format!(
+                            "GetAdaptersAddresses failed: {other:x}"
+                        )))
+                    }
                 }
             }
         }
