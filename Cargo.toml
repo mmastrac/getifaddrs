@@ -2,7 +2,10 @@
 name = "getifaddrs"
 version = "0.2.0"
 edition = "2021"
-description = "A cross-platform library for retrieving network interface information"
+description = """
+A cross-platform library for retrieving network interface addresses and indices
+(getifaddrs, if_nametoindex, if_indextoname).
+"""
 authors = ["Matt Mastracci <matthew@mastracci.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mmastrac/getifaddrs"

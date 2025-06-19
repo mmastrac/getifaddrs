@@ -333,7 +333,7 @@ mod unix {
         }
     }
 
-    pub fn _if_indextoname(index: usize) -> std::io::Result<String> {
+    pub fn _if_indextoname(index: InterfaceIndex) -> std::io::Result<String> {
         let mut buffer = vec![0u8; libc::IF_NAMESIZE];
         let result = unsafe {
             libc::if_indextoname(
@@ -734,7 +734,7 @@ mod windows {
             flags.0
         }
     }
-    pub fn _if_indextoname(index: usize) -> io::Result<String> {
+    pub fn _if_indextoname(index: InterfaceIndex) -> io::Result<String> {
         let mut buffer = vec![0u8; IF_NAMESIZE]; // Allocate buffer for narrow string
         let result = unsafe { if_indextoname(index as u32, buffer.as_mut_ptr()) };
         if result.is_null() {
@@ -795,7 +795,7 @@ pub fn getifaddrs() -> std::io::Result<impl Iterator<Item = Interface>> {
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
 /// ```
-pub fn if_indextoname(index: usize) -> std::io::Result<String> {
+pub fn if_indextoname(index: InterfaceIndex) -> std::io::Result<String> {
     #[cfg(unix)]
     {
         unix::_if_indextoname(index)
@@ -808,8 +808,8 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 
 /// Converts a network interface name to its corresponding index.
 ///
-/// This function takes a network interface name or number and returns the
-/// corresponding interface index.
+/// This function takes a string containing the network interface name or number
+/// and returns the corresponding interface index.
 ///
 /// # Arguments
 ///
@@ -818,7 +818,7 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 ///
 /// # Returns
 ///
-/// Returns a `Result` containing the interface index as a `InterfaceIndex` on
+/// Returns a `Result` containing the interface index as a [`InterfaceIndex`] on
 /// success, or an `io::Error` if the conversion failed or the name is invalid.
 ///
 /// # Examples
@@ -830,8 +830,8 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 /// }
 /// ```
 pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<InterfaceIndex> {
-    // Any index that can parse as usize is returned as-is
-    if let Ok(num) = name.as_ref().parse::<usize>() {
+    // Any index that can parse as `InterfaceIndex` is returned as-is
+    if let Ok(num) = name.as_ref().parse::<InterfaceIndex>() {
         return Ok(num as _);
     }
 
