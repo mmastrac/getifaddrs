@@ -215,23 +215,24 @@ mod unix {
 
                         let flags = {
                             let mut flags = InterfaceFlags::empty();
-                            let raw_flags: c_int = ifaddr.ifa_flags as _;
-                            if raw_flags & libc::IFF_UP != 0 {
+                            // Platforms have varying size for ifa_flags, so just work in usize
+                            let raw_flags = ifaddr.ifa_flags as usize;
+                            if raw_flags & (libc::IFF_UP as usize) != 0 {
                                 flags |= InterfaceFlags::UP;
                             }
-                            if raw_flags & libc::IFF_RUNNING != 0 {
+                            if raw_flags & (libc::IFF_RUNNING as usize) != 0 {
                                 flags |= InterfaceFlags::RUNNING;
                             }
-                            if raw_flags & libc::IFF_LOOPBACK != 0 {
+                            if raw_flags & (libc::IFF_LOOPBACK as usize) != 0 {
                                 flags |= InterfaceFlags::LOOPBACK;
                             }
-                            if raw_flags & libc::IFF_POINTOPOINT != 0 {
+                            if raw_flags & (libc::IFF_POINTOPOINT as usize) != 0 {
                                 flags |= InterfaceFlags::POINTTOPOINT;
                             }
-                            if raw_flags & libc::IFF_BROADCAST != 0 {
+                            if raw_flags & (libc::IFF_BROADCAST as usize) != 0 {
                                 flags |= InterfaceFlags::BROADCAST;
                             }
-                            if raw_flags & libc::IFF_MULTICAST != 0 {
+                            if raw_flags & (libc::IFF_MULTICAST as usize) != 0 {
                                 flags |= InterfaceFlags::MULTICAST;
                             }
                             flags
@@ -387,6 +388,7 @@ mod windows {
     const IF_NAMESIZE: usize = 1024;
 
     pub struct InterfaceIterator {
+        #[allow(unused)]
         adapters: AdaptersAddresses,
         current: *const IP_ADAPTER_ADDRESSES_LH,
         current_unicast: *const IP_ADAPTER_UNICAST_ADDRESS_LH,
@@ -574,7 +576,7 @@ mod windows {
                     ERROR_NO_DATA => {
                         return Err(io::Error::new(io::ErrorKind::NotFound, "No data"))
                     }
-                    _ => return Err(io::Error::new(io::ErrorKind::Other, "Unknown error")),
+                    other => return Err(io::Error::other(format!("GetAdaptersAddresses failed: {other:x}", other))),
                 }
             }
         }
@@ -736,7 +738,7 @@ mod windows {
     }
     pub fn _if_indextoname(index: InterfaceIndex) -> io::Result<String> {
         let mut buffer = vec![0u8; IF_NAMESIZE]; // Allocate buffer for narrow string
-        let result = unsafe { if_indextoname(index as u32, buffer.as_mut_ptr()) };
+        let result = unsafe { if_indextoname(index as _, buffer.as_mut_ptr()) };
         if result.is_null() {
             Err(io::Error::last_os_error())
         } else {

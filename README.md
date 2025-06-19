@@ -23,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-getifaddrs = "0.1"
+getifaddrs = "0.2"
 ```
 
 ## Example
