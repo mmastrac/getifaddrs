@@ -1,6 +1,9 @@
 #![doc=include_str!("../README.md")]
 use bitflags::bitflags;
 
+/// This represents the index of a network interface.
+pub type InterfaceIndex = u32;
+
 bitflags! {
     /// Flags representing the status and capabilities of a network interface.
     ///
@@ -46,12 +49,12 @@ pub struct Interface {
     /// The flags indicating the interface's properties and state.
     pub flags: InterfaceFlags,
     /// The index of the interface, if available.
-    pub index: Option<u32>,
+    pub index: Option<InterfaceIndex>,
 }
 
 enum InterfaceFilterCriteria {
     Loopback,
-    Index(u32),
+    Index(InterfaceIndex),
     Name(String),
 }
 
@@ -104,7 +107,7 @@ impl InterfaceFilter {
     }
 
     /// Filters for interfaces with the specified index.
-    pub fn index(mut self, index: u32) -> Self {
+    pub fn index(mut self, index: InterfaceIndex) -> Self {
         self.criteria = Some(InterfaceFilterCriteria::Index(index));
         self
     }
@@ -146,6 +149,8 @@ impl InterfaceFilter {
 
 #[cfg(unix)]
 mod unix {
+    use crate::InterfaceIndex;
+
     use super::{
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
     };
@@ -242,7 +247,7 @@ mod unix {
                         let index = unsafe {
                             let index = libc::if_nametoindex(ifaddr.ifa_name);
                             if index != 0 {
-                                Some(index as u32)
+                                Some(index as InterfaceIndex)
                             } else {
                                 None
                             }
@@ -347,7 +352,7 @@ mod unix {
         }
     }
 
-    pub fn _if_nametoindex(name: impl AsRef<str>) -> std::io::Result<u32> {
+    pub fn _if_nametoindex(name: impl AsRef<str>) -> std::io::Result<InterfaceIndex> {
         let name_cstr = std::ffi::CString::new(name.as_ref()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid interface name")
         })?;
@@ -743,7 +748,7 @@ mod windows {
         }
     }
 
-    pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<u32> {
+    pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<InterfaceIndex> {
         use std::ffi::CString;
         let name_cstr = CString::new(name.as_ref())
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid interface name"))?;
@@ -803,17 +808,18 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 
 /// Converts a network interface name to its corresponding index.
 ///
-/// This function takes a network interface name or number and returns the corresponding interface index.
+/// This function takes a network interface name or number and returns the
+/// corresponding interface index.
 ///
 /// # Arguments
 ///
-/// * `name` - The name of the network interface. This can be any type that can be converted
-///            to a string slice (`&str`).
+/// * `name`: The name of the network interface. This can be any type that can
+///   be converted to a string slice (`&str`).
 ///
 /// # Returns
 ///
-/// Returns a `Result` containing the interface index as a `usize` on success, or an `io::Error`
-/// if the conversion failed or the name is invalid.
+/// Returns a `Result` containing the interface index as a `InterfaceIndex` on
+/// success, or an `io::Error` if the conversion failed or the name is invalid.
 ///
 /// # Examples
 ///
@@ -823,19 +829,19 @@ pub fn if_indextoname(index: usize) -> std::io::Result<String> {
 ///     Err(e) => eprintln!("Error: {}", e),
 /// }
 /// ```
-pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<u32> {
-    // Any index that can parse as u32 is returned as-is
-    if let Ok(num) = name.as_ref().parse::<u32>() {
+pub fn if_nametoindex(name: impl AsRef<str>) -> std::io::Result<InterfaceIndex> {
+    // Any index that can parse as usize is returned as-is
+    if let Ok(num) = name.as_ref().parse::<usize>() {
         return Ok(num as _);
     }
 
     #[cfg(unix)]
     {
-        unix::_if_nametoindex(name)
+        unix::_if_nametoindex(name).map(|idx| idx as _)
     }
     #[cfg(windows)]
     {
-        windows::_if_nametoindex(name)
+        windows::_if_nametoindex(name).map(|idx| idx as _)
     }
 }
 
