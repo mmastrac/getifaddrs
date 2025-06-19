@@ -149,10 +149,9 @@ impl InterfaceFilter {
 
 #[cfg(unix)]
 mod unix {
-    use crate::InterfaceIndex;
-
     use super::{
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        InterfaceIndex,
     };
     use libc::{self, c_int};
     use std::ffi::CStr;
@@ -369,6 +368,7 @@ mod unix {
 mod windows {
     use super::{
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        InterfaceIndex,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
     use windows_sys::Win32::Foundation::{
