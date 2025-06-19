@@ -153,7 +153,6 @@ mod unix {
         AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
         InterfaceIndex,
     };
-    use libc;
     use std::ffi::CStr;
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
