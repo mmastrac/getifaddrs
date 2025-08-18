@@ -181,59 +181,54 @@ mod unix {
             while !current.is_null() {
                 let ifaddr = unsafe { &*current };
                 if let Some(addr) = unsafe { ifaddr.ifa_addr.as_ref() } {
-                    if addr.sa_family == libc::AF_PACKET as libc::sa_family_t {
-                        // Extract MAC address for Linux/Android (AF_PACKET) and macOS/BSD (AF_LINK)
-                        let mac_address = unsafe {
-                            if let Some(addr) = ifaddr.ifa_addr.as_ref() {
-                                #[cfg(any(target_os = "linux", target_os = "android"))]
-                                {
-                                    if addr.sa_family == libc::AF_PACKET as libc::sa_family_t {
-                                        let sll = addr as *const _ as *const libc::sockaddr_ll;
-                                        let mac = (*sll).sll_addr;
-                                        Some([
-                                            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
-                                        ])
-                                    } else {
-                                        None
-                                    }
-                                }
-                                #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-                                {
-                                    if addr.sa_family == libc::AF_LINK as libc::sa_family_t {
-                                        let sdl = addr as *const _ as *const libc::sockaddr_dl;
-                                        let mac_offset = (*sdl).sdl_nlen as usize;
-                                        let mac_len = (*sdl).sdl_alen as usize;
-                                        if mac_len == 6 {
-                                            let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset);
-                                            let mut mac = [0u8; 6];
-                                            #[allow(clippy::needless_range_loop)]
-                                            for i in 0..6 {
-                                                mac[i] = *mac_ptr.add(i) as u8;
-                                            }
-                                            Some(mac)
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                }
-                                #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd")))]
-                                {
-                                    None
-                                }
+                    #[allow(clippy::unused_mut, unused_assignments)]
+                    let mut mac_address: Option<[u8; 6]> = None;
+
+                    #[cfg(any(target_os = "linux", target_os = "android"))]
+                    {
+                        mac_address = unsafe {
+                            // Extract MAC address for Linux/Android (AF_PACKET) and macOS/BSD (AF_LINK)
+                            if addr.sa_family == libc::AF_PACKET as libc::sa_family_t {
+                                let sll = addr as *const _ as *const libc::sockaddr_ll;
+                                let mac = (*sll).sll_addr;
+                                Some([
+                                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+                                ])
                             } else {
                                 None
                             }
                         };
-                        if let Some(mac) = mac_address {
-                            let name = unsafe {
-                                CStr::from_ptr(ifaddr.ifa_name)
-                                    .to_string_lossy()
-                                    .into_owned()
-                            };
-                            mac_addresses.insert(name, mac);
-                        }
+                    }
+
+                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+                    {
+                        mac_address = unsafe {
+                            if addr.sa_family == libc::AF_LINK as libc::sa_family_t {
+                                let sdl = addr as *const _ as *const libc::sockaddr_dl;
+                                let mac_offset = (*sdl).sdl_nlen as usize;
+                                let mac_len = (*sdl).sdl_alen as usize;
+                                if mac_len == 6 {
+                                    let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset);
+                                    let mut mac = [0u8; 6];
+                                    #[allow(clippy::needless_range_loop)]
+                                    for i in 0..6 {
+                                        mac[i] = *mac_ptr.add(i) as u8;
+                                    }
+                                    Some(mac)
+                                } else {
+                                    None
+                                }
+                            }
+                        };
+                    }
+
+                    if let Some(mac) = mac_address {
+                        let name = unsafe {
+                            CStr::from_ptr(ifaddr.ifa_name)
+                                .to_string_lossy()
+                                .into_owned()
+                        };
+                        mac_addresses.insert(name, mac);
                     }
                 }
                 current = ifaddr.ifa_next;
