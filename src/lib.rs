@@ -800,7 +800,7 @@ mod windows {
 
                 let (current, current_unicast) = self.advance()?;
 
-                let sa_family = unsafe { (*current_unicast).Address.lpSockaddr.sa_family };
+                let sa_family = unsafe { (*(*current_unicast).Address.lpSockaddr).sa_family };
                 if sa_family == AF_INET && !self.filter.family_filter(AddressFamily::V4) {
                     continue;
                 }
