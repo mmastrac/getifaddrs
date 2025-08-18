@@ -1,4 +1,10 @@
 #![doc=include_str!("../README.md")]
+
+use std::{
+    collections::BTreeMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+};
+
 use bitflags::bitflags;
 
 /// This represents the index of a network interface.
@@ -30,40 +36,220 @@ bitflags! {
 /// This struct contains information about a network interface, including its name,
 /// IP address, netmask, flags, and index.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Interface {
+pub struct Interface<A: sealed::Addressable = Address> {
     /// The name of the interface.
     pub name: String,
     /// The description of the interface (Windows-specific).
     #[cfg(windows)]
     pub description: String,
-    /// The IP address associated with the interface.
-    pub address: std::net::IpAddr,
-    // TODO: This may be implementable for Windows.
-    #[cfg(not(windows))]
-    /// The associated address of the interface. For broadcast interfaces, this
-    /// is the broadcast address. For point-to-point interfaces, this is the
-    /// peer address.
-    pub associated_address: Option<std::net::IpAddr>,
-    /// The netmask of the interface, if available.
-    pub netmask: Option<std::net::IpAddr>,
-    /// The MAC address of the interface, if available.
-    pub mac_address: Option<[u8; 6]>,
+    /// The address(es) associated with the interface.
+    pub address: A,
     /// The flags indicating the interface's properties and state.
     pub flags: InterfaceFlags,
     /// The index of the interface, if available.
     pub index: Option<InterfaceIndex>,
 }
 
+/// A map of interface index to interface addresses. Note that this assumes each
+/// interface has at most one address of each family.
+///
+/// ```
+/// # use getifaddrs::{getifaddrs, Interface, Interfaces};
+/// # fn main() -> std::io::Result<()> {
+/// let interfaces: Interfaces = getifaddrs()?.collect();
+/// # Ok(())
+/// # }
+/// ```
+pub type Interfaces = BTreeMap<InterfaceIndex, Interface<Addresses>>;
+
+impl FromIterator<Interface> for Interfaces {
+    fn from_iter<T: IntoIterator<Item = Interface>>(iter: T) -> Self {
+        let mut map = BTreeMap::new();
+        for interface in iter {
+            if let Some(index) = interface.index {
+                map.entry(index)
+                    .or_insert_with(|| Interface {
+                        name: interface.name,
+                        #[cfg(windows)]
+                        description: interface.description,
+                        address: Addresses::default(),
+                        flags: interface.flags,
+                        index: Some(index),
+                    })
+                    .address
+                    .insert(interface.address.family(), interface.address);
+            }
+        }
+        map
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct Addresses {
+    addresses: BTreeMap<AddressFamily, Address>,
+}
+
+impl Addresses {
+    pub fn get(&self, family: AddressFamily) -> Option<&Address> {
+        self.addresses.get(&family)
+    }
+
+    pub fn iter(&self) -> AddressesIter<'_> {
+        IntoIterator::into_iter(self)
+    }
+
+    fn insert(&mut self, family: AddressFamily, address: Address) {
+        self.addresses.insert(family, address);
+    }
+}
+
+pub struct AddressesIter<'a> {
+    iter: std::collections::btree_map::Values<'a, AddressFamily, Address>,
+}
+
+impl<'a> Iterator for AddressesIter<'a> {
+    type Item = &'a Address;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'a> IntoIterator for &'a Addresses {
+    type Item = &'a Address;
+    type IntoIter = AddressesIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        AddressesIter {
+            iter: self.addresses.values(),
+        }
+    }
+}
+
+/// Represents a network address family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AddressFamily {
+    /// An IPv4 address.
+    V4,
+    /// An IPv6 address.
+    V6,
+    /// A MAC (aka Ethernet) address.
+    Mac,
+}
+
+/// Represents a network address of a given type.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Address {
+    /// An IPv4 address.
+    V4(NetworkAddress<Ipv4Addr>),
+    /// An IPv6 address.
+    V6(NetworkAddress<Ipv6Addr>),
+    /// A MAC (aka Ethernet) address.
+    Mac([u8; 6]),
+}
+
+impl Address {
+    /// Returns `true` if the address is an IPv4 address.
+    pub fn is_ipv4(&self) -> bool {
+        matches!(self, Address::V4(_))
+    }
+
+    /// Returns `true` if the address is an IPv6 address.
+    pub fn is_ipv6(&self) -> bool {
+        matches!(self, Address::V6(_))
+    }
+
+    /// Returns `true` if the address is a MAC (aka Ethernet) address.
+    pub fn is_mac(&self) -> bool {
+        matches!(self, Address::Mac(_))
+    }
+
+    /// Returns the address family of the address.
+    pub fn family(&self) -> AddressFamily {
+        match self {
+            Address::V4(_) => AddressFamily::V4,
+            Address::V6(_) => AddressFamily::V6,
+            Address::Mac(_) => AddressFamily::Mac,
+        }
+    }
+
+    pub fn mac_addr(&self) -> Option<[u8; 6]> {
+        match self {
+            Address::Mac(addr) => Some(*addr),
+            _ => None,
+        }
+    }
+
+    pub fn ip_addr(&self) -> Option<IpAddr> {
+        match self {
+            Address::V4(addr) => Some(IpAddr::V4(addr.address)),
+            Address::V6(addr) => Some(IpAddr::V6(addr.address)),
+            Address::Mac(_) => None,
+        }
+    }
+
+    pub fn netmask(&self) -> Option<IpAddr> {
+        match self {
+            Address::V4(addr) => addr.netmask.map(IpAddr::V4),
+            Address::V6(addr) => addr.netmask.map(IpAddr::V6),
+            Address::Mac(_) => None,
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn associated_address(&self) -> Option<IpAddr> {
+        match self {
+            Address::V4(addr) => addr.associated_address.map(IpAddr::V4),
+            Address::V6(addr) => addr.associated_address.map(IpAddr::V6),
+            Address::Mac(_) => None,
+        }
+    }
+}
+
+impl PartialEq<IpAddr> for Address {
+    fn eq(&self, other: &IpAddr) -> bool {
+        match self {
+            Address::V4(addr) => addr.address == *other,
+            Address::V6(addr) => addr.address == *other,
+            Address::Mac(_) => false,
+        }
+    }
+}
+
+mod sealed {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    /// A trait for types that can be converted to and from `IpAddr`.
+    pub trait NetworkAddressable: Into<IpAddr> {}
+
+    impl NetworkAddressable for Ipv4Addr {}
+    impl NetworkAddressable for Ipv6Addr {}
+
+    pub trait Addressable {}
+
+    impl Addressable for super::Address {}
+    impl Addressable for super::Addresses {}
+}
+
+/// Represents a network address of a given type.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NetworkAddress<T: sealed::NetworkAddressable> {
+    /// The address associated with the interface.
+    pub address: T,
+    /// The netmask associated with the interface.
+    pub netmask: Option<T>,
+
+    #[cfg(not(windows))]
+    // TODO: This may be implementable for Windows.
+    /// The associated address of the interface. For broadcast interfaces, this
+    /// is the broadcast address. For point-to-point interfaces, this is the
+    /// peer address.
+    pub associated_address: Option<T>,
+}
+
 enum InterfaceFilterCriteria {
     Loopback,
     Index(InterfaceIndex),
     Name(String),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AddressFilterCriteria {
-    V4,
-    V6,
 }
 
 /// A filter for network interfaces.
@@ -93,7 +279,7 @@ enum AddressFilterCriteria {
 #[derive(Default)]
 pub struct InterfaceFilter {
     criteria: Option<InterfaceFilterCriteria>,
-    address: Option<AddressFilterCriteria>,
+    address: Option<[bool; 3]>,
 }
 
 impl InterfaceFilter {
@@ -120,16 +306,41 @@ impl InterfaceFilter {
         self
     }
 
-    /// Filters for IPv4 interfaces.
-    pub fn v4(mut self) -> Self {
-        self.address = Some(AddressFilterCriteria::V4);
+    pub fn family(mut self, family: AddressFamily) -> Self {
+        let address = self.address.get_or_insert([false; 3]);
+        match family {
+            AddressFamily::V4 => address[0] = true,
+            AddressFamily::V6 => address[1] = true,
+            AddressFamily::Mac => address[2] = true,
+        }
         self
     }
 
+    /// Filters for IPv4 interfaces.
+    pub fn v4(self) -> Self {
+        self.family(AddressFamily::V4)
+    }
+
     /// Filters for IPv6 interfaces.
-    pub fn v6(mut self) -> Self {
-        self.address = Some(AddressFilterCriteria::V6);
-        self
+    pub fn v6(self) -> Self {
+        self.family(AddressFamily::V6)
+    }
+
+    /// Filters for MAC addresses.
+    pub fn mac(self) -> Self {
+        self.family(AddressFamily::Mac)
+    }
+
+    fn family_filter(&self, family: AddressFamily) -> bool {
+        self.address
+            .map(|address| {
+                address[match family {
+                    AddressFamily::V4 => 0,
+                    AddressFamily::V6 => 1,
+                    AddressFamily::Mac => 2,
+                }]
+            })
+            .unwrap_or(true)
     }
 
     /// Applies the filter and returns an iterator over the matching interfaces.
@@ -147,24 +358,37 @@ impl InterfaceFilter {
             windows::InterfaceIterator::new(self)
         }
     }
+
+    /// Collects the interfaces into a `BTreeMap` of interface index to
+    /// interface addresses.
+    /// 
+    /// ## Limitations
+    /// 
+    /// This will only collect interfaces that contain an non-empty index. 
+    /// 
+    /// If multiple addresses are associated with an interface and address
+    /// family, this will return the first one.
+    pub fn collect(self) -> std::io::Result<Interfaces> {
+        Ok(self.get()?.collect())
+    }
 }
 
 #[cfg(unix)]
 mod unix {
+    use crate::Address;
+
     use super::{
-        AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
-        InterfaceIndex,
+        AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        InterfaceIndex, NetworkAddress,
     };
     use std::ffi::CStr;
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    use std::collections::BTreeMap;
 
     pub struct InterfaceIterator {
         ifaddrs: *mut libc::ifaddrs,
         current: *mut libc::ifaddrs,
         filter: InterfaceFilter,
-        mac_addresses: BTreeMap<String, [u8; 6]>,
     }
 
     impl InterfaceIterator {
@@ -175,74 +399,10 @@ mod unix {
                 return Err(io::Error::last_os_error());
             }
 
-            // Gather MAC addresses for interfaces
-            let mut mac_addresses = BTreeMap::new();
-            let mut current = ifaddrs;
-            while !current.is_null() {
-                let ifaddr = unsafe { &*current };
-                if let Some(addr) = unsafe { ifaddr.ifa_addr.as_ref() } {
-                    #[allow(unused_mut, unused_assignments)]
-                    let mut mac_address: Option<[u8; 6]> = None;
-
-                    #[cfg(any(target_os = "linux", target_os = "android"))]
-                    {
-                        mac_address = unsafe {
-                            // Extract MAC address for Linux/Android (AF_PACKET) and macOS/BSD (AF_LINK)
-                            if addr.sa_family == libc::AF_PACKET as libc::sa_family_t {
-                                let sll = addr as *const _ as *const libc::sockaddr_ll;
-                                let mac = (*sll).sll_addr;
-                                Some([
-                                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
-                                ])
-                            } else {
-                                None
-                            }
-                        };
-                    }
-
-                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-                    {
-                        mac_address = unsafe {
-                            if addr.sa_family == libc::AF_LINK as libc::sa_family_t {
-                                let sdl = addr as *const _ as *const libc::sockaddr_dl;
-                                let mac_offset = (*sdl).sdl_nlen as usize;
-                                let mac_len = (*sdl).sdl_alen as usize;
-                                if mac_len == 6 {
-                                    let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset);
-                                    let mut mac = [0u8; 6];
-                                    #[allow(clippy::needless_range_loop)]
-                                    for i in 0..6 {
-                                        mac[i] = *mac_ptr.add(i) as u8;
-                                    }
-                                    Some(mac)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        };
-                    }
-
-                    if let Some(mac) = mac_address {
-                        // Filter out zeroed MAC addresses
-                        if mac != [0, 0, 0, 0, 0, 0] {
-                            let name = unsafe {
-                                CStr::from_ptr(ifaddr.ifa_name)
-                                    .to_string_lossy()
-                                    .into_owned()
-                            };
-                            mac_addresses.insert(name, mac);
-                        }
-                    }
-                }
-                current = ifaddr.ifa_next;
-            }
             Ok(InterfaceIterator {
                 ifaddrs,
                 current: ifaddrs,
                 filter,
-                mac_addresses,
             })
         }
     }
@@ -254,87 +414,93 @@ mod unix {
             while !self.current.is_null() {
                 let ifaddr = unsafe { &*self.current };
                 self.current = ifaddr.ifa_next;
-                if let Some(addr) = unsafe { ifaddr.ifa_addr.as_ref() } {
-                    if addr.sa_family == libc::AF_INET as libc::sa_family_t
-                        || addr.sa_family == libc::AF_INET6 as libc::sa_family_t
-                    {
-                        if let Some(address) = self.filter.address {
-                            match address {
-                                AddressFilterCriteria::V4 => {
-                                    if addr.sa_family != libc::AF_INET as libc::sa_family_t {
-                                        continue;
-                                    }
-                                }
-                                AddressFilterCriteria::V6 => {
-                                    if addr.sa_family != libc::AF_INET6 as libc::sa_family_t {
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
+                let Some(addr) = (unsafe { ifaddr.ifa_addr.as_ref() }) else {
+                    continue;
+                };
 
-                        if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
-                            let ifname = unsafe { CStr::from_ptr(ifaddr.ifa_name) };
-                            if !name.as_bytes().eq(ifname.to_bytes()) {
-                                continue;
-                            }
-                        }
+                let family = match addr.sa_family as _ {
+                    libc::AF_INET => AddressFamily::V4,
+                    libc::AF_INET6 => AddressFamily::V6,
+                    #[cfg(any(
+                        target_vendor = "apple",
+                        target_os = "freebsd",
+                        target_os = "openbsd",
+                        target_os = "netbsd"
+                    ))]
+                    libc::AF_LINK => AddressFamily::Mac,
+                    #[cfg(any(target_os = "linux", target_os = "android"))]
+                    libc::AF_PACKET => AddressFamily::Mac,
+                    _ => continue,
+                };
 
-                        let flags = {
-                            let mut flags = InterfaceFlags::empty();
-                            // Platforms have varying size for ifa_flags, so just work in usize
-                            let raw_flags = ifaddr.ifa_flags as usize;
-                            if raw_flags & (libc::IFF_UP as usize) != 0 {
-                                flags |= InterfaceFlags::UP;
-                            }
-                            if raw_flags & (libc::IFF_RUNNING as usize) != 0 {
-                                flags |= InterfaceFlags::RUNNING;
-                            }
-                            if raw_flags & (libc::IFF_LOOPBACK as usize) != 0 {
-                                flags |= InterfaceFlags::LOOPBACK;
-                            }
-                            if raw_flags & (libc::IFF_POINTOPOINT as usize) != 0 {
-                                flags |= InterfaceFlags::POINTTOPOINT;
-                            }
-                            if raw_flags & (libc::IFF_BROADCAST as usize) != 0 {
-                                flags |= InterfaceFlags::BROADCAST;
-                            }
-                            if raw_flags & (libc::IFF_MULTICAST as usize) != 0 {
-                                flags |= InterfaceFlags::MULTICAST;
-                            }
-                            flags
-                        };
+                if !self.filter.family_filter(family) {
+                    continue;
+                }
 
-                        if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
-                            if !flags.contains(InterfaceFlags::LOOPBACK) {
-                                continue;
-                            }
-                        }
+                if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
+                    let ifname = unsafe { CStr::from_ptr(ifaddr.ifa_name) };
+                    if !name.as_bytes().eq(ifname.to_bytes()) {
+                        continue;
+                    }
+                }
 
-                        let index = unsafe {
-                            let index = libc::if_nametoindex(ifaddr.ifa_name);
-                            if index != 0 {
-                                Some(index as InterfaceIndex)
-                            } else {
-                                None
-                            }
-                        };
+                let flags = {
+                    let mut flags = InterfaceFlags::empty();
+                    // Platforms have varying size for ifa_flags, so just work in usize
+                    let raw_flags = ifaddr.ifa_flags as usize;
+                    if raw_flags & (libc::IFF_UP as usize) != 0 {
+                        flags |= InterfaceFlags::UP;
+                    }
+                    if raw_flags & (libc::IFF_RUNNING as usize) != 0 {
+                        flags |= InterfaceFlags::RUNNING;
+                    }
+                    if raw_flags & (libc::IFF_LOOPBACK as usize) != 0 {
+                        flags |= InterfaceFlags::LOOPBACK;
+                    }
+                    if raw_flags & (libc::IFF_POINTOPOINT as usize) != 0 {
+                        flags |= InterfaceFlags::POINTTOPOINT;
+                    }
+                    if raw_flags & (libc::IFF_BROADCAST as usize) != 0 {
+                        flags |= InterfaceFlags::BROADCAST;
+                    }
+                    if raw_flags & (libc::IFF_MULTICAST as usize) != 0 {
+                        flags |= InterfaceFlags::MULTICAST;
+                    }
+                    flags
+                };
 
-                        if let Some(InterfaceFilterCriteria::Index(filter_index)) =
-                            &self.filter.criteria
-                        {
-                            if index != Some(*filter_index) {
-                                continue;
-                            }
-                        }
+                if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
+                    if !flags.contains(InterfaceFlags::LOOPBACK) {
+                        continue;
+                    }
+                }
 
-                        let name = unsafe { CStr::from_ptr(ifaddr.ifa_name) }
-                            .to_string_lossy()
-                            .into_owned();
+                let index = unsafe {
+                    let index = libc::if_nametoindex(ifaddr.ifa_name);
+                    if index != 0 {
+                        Some(index as InterfaceIndex)
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(InterfaceFilterCriteria::Index(filter_index)) = &self.filter.criteria {
+                    if index != Some(*filter_index) {
+                        continue;
+                    }
+                }
+
+                let name = unsafe { CStr::from_ptr(ifaddr.ifa_name) }
+                    .to_string_lossy()
+                    .into_owned();
+
+                let address = match family {
+                    AddressFamily::V4 | AddressFamily::V6 => {
                         let address = match unsafe { sockaddr_to_ipaddr(addr) } {
                             Ok(addr) => addr,
                             Err(_) => continue, // Skip invalid address families
                         };
+
                         let netmask = unsafe {
                             ifaddr
                                 .ifa_netmask
@@ -360,19 +526,97 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
-                        let mac_address = self.mac_addresses.get(&name).copied();
-
-                        return Some(Interface {
-                            name,
-                            address,
-                            associated_address,
-                            netmask,
-                            mac_address,
-                            flags,
-                            index,
-                        });
+                        match family {
+                            AddressFamily::V4 => {
+                                let IpAddr::V4(address) = address else {
+                                    continue;
+                                };
+                                Address::V4(NetworkAddress {
+                                    address,
+                                    netmask: match netmask {
+                                        Some(IpAddr::V4(netmask)) => Some(netmask),
+                                        _ => continue,
+                                    },
+                                    associated_address: match associated_address {
+                                        Some(IpAddr::V4(addr)) => Some(addr),
+                                        _ => None,
+                                    },
+                                })
+                            }
+                            AddressFamily::V6 => {
+                                let IpAddr::V6(address) = address else {
+                                    continue;
+                                };
+                                Address::V6(NetworkAddress {
+                                    address,
+                                    netmask: match netmask {
+                                        Some(IpAddr::V6(netmask)) => Some(netmask),
+                                        _ => continue,
+                                    },
+                                    associated_address: match associated_address {
+                                        Some(IpAddr::V6(addr)) => Some(addr),
+                                        _ => None,
+                                    },
+                                })
+                            }
+                            _ => unreachable!(),
+                        }
                     }
-                }
+                    AddressFamily::Mac => {
+                        #[allow(unused_assignments, unused_mut)]
+                        let mut mac_address = None;
+
+                        #[cfg(any(target_os = "linux", target_os = "android"))]
+                        {
+                            mac_address = unsafe {
+                                let sll = addr as *const _ as *const libc::sockaddr_ll;
+                                let mac = (*sll).sll_addr;
+                                Some([mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]])
+                            }
+                        }
+
+                        #[cfg(any(
+                            target_vendor = "apple",
+                            target_os = "freebsd",
+                            target_os = "openbsd",
+                            target_os = "netbsd"
+                        ))]
+                        {
+                            mac_address = unsafe {
+                                let sdl = addr as *const _ as *const libc::sockaddr_dl;
+                                let mac_offset = (*sdl).sdl_nlen as usize;
+                                let mac_len = (*sdl).sdl_alen as usize;
+                                if mac_len == 6 {
+                                    let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset);
+                                    let mut mac = [0u8; 6];
+                                    #[allow(clippy::needless_range_loop)]
+                                    for i in 0..6 {
+                                        mac[i] = *mac_ptr.add(i) as u8;
+                                    }
+                                    Some(mac)
+                                } else {
+                                    None
+                                }
+                            };
+                        }
+
+                        if let Some(mac) = mac_address {
+                            if mac != [0u8; 6] {
+                                Address::Mac(mac)
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            continue;
+                        }
+                    }
+                };
+                return Some(Interface {
+                    name,
+                    address,
+                    flags,
+                    index,
+                });
             }
             None
         }
@@ -438,8 +682,8 @@ mod unix {
 #[cfg(windows)]
 mod windows {
     use super::{
-        AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
-        InterfaceIndex,
+        Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria,
+        InterfaceFlags, InterfaceIndex, NetworkAddress,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
     use windows_sys::Win32::Foundation::{
@@ -460,6 +704,7 @@ mod windows {
     pub struct InterfaceIterator {
         #[allow(unused)]
         adapters: AdaptersAddresses,
+        yielded_mac: bool,
         current: *const IP_ADAPTER_ADDRESSES_LH,
         current_unicast: *const IP_ADAPTER_UNICAST_ADDRESS_LH,
         filter: InterfaceFilter,
@@ -467,16 +712,22 @@ mod windows {
 
     impl InterfaceIterator {
         pub fn new(filter: InterfaceFilter) -> io::Result<Self> {
-            let family = match filter.address {
-                Some(AddressFilterCriteria::V4) => Family::V4,
-                Some(AddressFilterCriteria::V6) => Family::V6,
-                None => Family::UNSPEC,
+            // We can only use this as an optimization if not looking for mac addresses
+            let family = match (
+                filter.family_filter(AddressFamily::V4),
+                filter.family_filter(AddressFamily::V6),
+                filter.family_filter(AddressFamily::Mac),
+            ) {
+                (true, false, false) => Family::V4,
+                (false, true, false) => Family::V6,
+                _ => Family::UNSPEC,
             };
             let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
             let current = adapters.buf.ptr;
             let current_unicast = unsafe { (*current).FirstUnicastAddress };
             Ok(InterfaceIterator {
                 adapters,
+                yielded_mac: false,
                 current,
                 current_unicast,
                 filter,
@@ -498,6 +749,7 @@ mod windows {
             let current_unicast = self.current_unicast;
             loop {
                 if self.current_unicast.is_null() {
+                    self.yielded_mac = false;
                     self.current = unsafe { (*self.current).Next };
                     if self.current.is_null() {
                         return Some((current, current_unicast));
@@ -521,7 +773,48 @@ mod windows {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
+                // Yield the mac address first for any adapter
+                if !self.yielded_mac && !self.current.is_null() {
+                    self.yielded_mac = true;
+
+                    if self.filter.family_filter(AddressFamily::Mac) {
+                        let adapter = unsafe { &*self.current };
+                        if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
+                            if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
+                                continue;
+                            }
+                        }
+
+                        if let Ok(Some(interface)) = convert_to_interface_mac(adapter) {
+                            if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria
+                            {
+                                if name != &interface.name {
+                                    continue;
+                                }
+                            }
+                            if let Some(InterfaceFilterCriteria::Index(index)) =
+                                &self.filter.criteria
+                            {
+                                if Some(*index) != interface.index {
+                                    continue;
+                                }
+                            }
+
+                            return Some(interface);
+                        }
+                    }
+                }
+
                 let (current, current_unicast) = self.advance()?;
+
+                let sa_family = unsafe { (*(*current_unicast).Address.lpSockaddr).sa_family };
+                if sa_family == AF_INET && !self.filter.family_filter(AddressFamily::V4) {
+                    continue;
+                }
+                if sa_family == AF_INET6 && !self.filter.family_filter(AddressFamily::V6) {
+                    continue;
+                }
+
                 let adapter = unsafe { &*current };
                 let unicast_addr = unsafe { &*current_unicast };
 
@@ -656,16 +949,7 @@ mod windows {
         }
     }
 
-    fn convert_to_interface(
-        adapter: &IP_ADAPTER_ADDRESSES_LH,
-        unicast_addr: &IP_ADAPTER_UNICAST_ADDRESS_LH,
-    ) -> io::Result<Interface> {
-        let description = to_os_string(adapter.FriendlyName)
-            .to_string_lossy()
-            .into_owned();
-
-        let address = sockaddr_to_ipaddr(unicast_addr.Address.lpSockaddr)?;
-
+    fn convert_to_flags(adapter: &IP_ADAPTER_ADDRESSES_LH) -> InterfaceFlags {
         // Unsure if this is the right mapping here
         let mut flags = InterfaceFlags::empty();
         let raw_flags = unsafe { adapter.Anonymous2.Flags };
@@ -698,8 +982,22 @@ mod windows {
             // ReceiveOnly
             flags &= !InterfaceFlags::RUNNING;
         }
+        flags
+    }
 
-        let netmask = match address {
+    fn convert_to_interface(
+        adapter: &IP_ADAPTER_ADDRESSES_LH,
+        unicast_addr: &IP_ADAPTER_UNICAST_ADDRESS_LH,
+    ) -> io::Result<Interface> {
+        let description = to_os_string(adapter.FriendlyName)
+            .to_string_lossy()
+            .into_owned();
+
+        let ip_addr = sockaddr_to_ipaddr(unicast_addr.Address.lpSockaddr)?;
+
+        let flags = convert_to_flags(adapter);
+
+        let netmask = match ip_addr {
             IpAddr::V4(_) => {
                 let mut mask: u32 = 0;
                 unsafe {
@@ -713,6 +1011,23 @@ mod windows {
                     0xffff, 0xffff, 0xffff, 0xffff, 0, 0, 0, 0,
                 )))
             }
+        };
+
+        let address = match ip_addr {
+            IpAddr::V4(addr) => Address::V4(NetworkAddress {
+                address: addr,
+                netmask: netmask.and_then(|n| match n {
+                    IpAddr::V4(netmask) => Some(netmask),
+                    _ => None,
+                }),
+            }),
+            IpAddr::V6(addr) => Address::V6(NetworkAddress {
+                address: addr,
+                netmask: netmask.and_then(|n| match n {
+                    IpAddr::V6(netmask) => Some(netmask),
+                    _ => None,
+                }),
+            }),
         };
 
         // Get the LUID and convert it to an index
@@ -736,26 +1051,65 @@ mod windows {
             (format!("if{:#x}", luid), None)
         };
 
-        // Extract MAC address from adapter.PhysicalAddress
-        let mac_address = unsafe {
-            let len = adapter.PhysicalAddressLength as usize;
-            if len == 6 {
-                let mut mac = [0u8; 6];
-                mac.copy_from_slice(&adapter.PhysicalAddress[..6]);
-                Some(mac)
-            } else {
-                None
-            }
-        };
         Ok(Interface {
             name,
             description,
             address,
-            netmask,
-            mac_address,
             flags,
             index,
         })
+    }
+
+    fn convert_to_interface_mac(
+        adapter: &IP_ADAPTER_ADDRESSES_LH,
+    ) -> io::Result<Option<Interface>> {
+        // Extract MAC address from adapter.PhysicalAddress
+        let len = adapter.PhysicalAddressLength as usize;
+        let mac_address = if len == 6 {
+            let mut mac = [0u8; 6];
+            mac.copy_from_slice(&adapter.PhysicalAddress[..6]);
+            if mac.iter().all(|b| *b == 0) {
+                return Ok(None);
+            }
+            mac
+        } else {
+            return Ok(None);
+        };
+
+        let description = to_os_string(adapter.FriendlyName)
+            .to_string_lossy()
+            .into_owned();
+
+        let flags = convert_to_flags(adapter);
+
+        // Get the LUID and convert it to an index
+        let luid = adapter.Luid;
+        let mut if_index: u32 = 0;
+        let result = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut if_index) };
+        let luid = unsafe { adapter.Luid.Value };
+        let (name, index) = if result == NO_ERROR {
+            // Call if_indextoname with the converted index
+            let mut buffer = [0u8; IF_NAMESIZE];
+            let result = unsafe { if_indextoname(if_index, buffer.as_mut_ptr()) };
+            if !result.is_null() {
+                let name = unsafe { std::ffi::CStr::from_ptr(result as *const i8) }
+                    .to_string_lossy()
+                    .into_owned();
+                (name, Some(if_index))
+            } else {
+                (format!("if{:#x}", luid), Some(if_index))
+            }
+        } else {
+            (format!("if{:#x}", luid), None)
+        };
+
+        Ok(Some(Interface {
+            name,
+            description,
+            address: Address::Mac(mac_address),
+            flags,
+            index,
+        }))
     }
 
     fn sockaddr_to_ipaddr(sock_addr: *const SOCKADDR) -> io::Result<IpAddr> {
@@ -967,8 +1321,7 @@ mod tests {
                 let name_from_index = if_indextoname(index as _).unwrap_or_default();
                 assert_eq!(
                     interface.name, name_from_index,
-                    "Interface name mismatch for index {}",
-                    index
+                    "Interface name mismatch for index {index}"
                 );
 
                 let index_from_name = if_nametoindex(&interface.name).unwrap_or_default();
@@ -982,39 +1335,149 @@ mod tests {
     }
 
     #[test]
+    fn test_collect() {
+        let interfaces: Interfaces = getifaddrs().unwrap().collect();
+        assert!(!interfaces.is_empty());
+        eprintln!("{interfaces:#?}");
+    }
+
+    #[test]
     fn test_filter_address_type() {
         let total = getifaddrs().unwrap().count();
-        let mut v4_count = 0;
-        for interface in InterfaceFilter::new().v4().get().unwrap() {
+
+        let v4 = InterfaceFilter::new()
+            .v4()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        for interface in &v4 {
             assert!(
                 interface.address.is_ipv4(),
                 "Expected v4 only: {interface:#?}"
             );
-            v4_count += 1;
         }
-        let mut v6_count = 0;
-        for interface in InterfaceFilter::new().v6().get().unwrap() {
+
+        let v6 = InterfaceFilter::new()
+            .v6()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        for interface in &v6 {
             assert!(
                 interface.address.is_ipv6(),
                 "Expected v6 only: {interface:#?}"
             );
-            v6_count += 1;
         }
+
+        let mac = InterfaceFilter::new()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        for interface in &mac {
+            assert!(
+                interface.address.is_mac(),
+                "Expected mac only: {interface:#?}"
+            );
+        }
+
         assert_eq!(
-            v4_count + v6_count,
+            v4.len() + v6.len() + mac.len(),
             total,
-            "v4 = {:?} v6 = {:?} all = {:?}",
-            InterfaceFilter::new()
-                .v4()
-                .get()
-                .unwrap()
-                .collect::<Vec<_>>(),
-            InterfaceFilter::new()
-                .v6()
-                .get()
-                .unwrap()
-                .collect::<Vec<_>>(),
+            "v4 = {:?} v6 = {:?} mac = {:?} all = {:?}",
+            v4,
+            v6,
+            mac,
             getifaddrs().unwrap().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_filter_address_type_with_mac() {
+        let total = getifaddrs().unwrap().count();
+
+        let v4_mac = InterfaceFilter::new()
+            .v4()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v4 = InterfaceFilter::new()
+            .v4()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v6_mac = InterfaceFilter::new()
+            .v6()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v6 = InterfaceFilter::new()
+            .v6()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v4_v6 = InterfaceFilter::new()
+            .v4()
+            .v6()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let mac = InterfaceFilter::new()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            v4_mac.len(),
+            v4.len() + mac.len(),
+            "v4_mac = {:?} != v4 = {:?} + mac = {:?}",
+            v4_mac,
+            v4,
+            mac
+        );
+        assert_eq!(
+            v6_mac.len(),
+            v6.len() + mac.len(),
+            "v6_mac = {:?} != v6 = {:?} + mac = {:?}",
+            v6_mac,
+            v6,
+            mac
+        );
+        assert_eq!(
+            v4_v6.len(),
+            v4.len() + v6.len(),
+            "v4_v6 = {:?} != v4 = {:?} + v6 = {:?}",
+            v4_v6,
+            v4,
+            v6
+        );
+
+        assert_eq!(
+            v4_mac.len() + v6.len(),
+            total,
+            "v4_mac = {:?} + v6 = {:?} != total = {:?}",
+            v4_mac,
+            v6,
+            total
+        );
+        assert_eq!(
+            v6_mac.len() + v4.len(),
+            total,
+            "v6_mac = {:?} + v4 = {:?} != total = {:?}",
+            v6_mac,
+            v4,
+            total
+        );
+        assert_eq!(
+            v4_v6.len() + mac.len(),
+            total,
+            "v4_v6 = {:?} + mac = {:?} != total = {:?}",
+            v4_v6,
+            mac,
+            total
         );
     }
 
@@ -1029,7 +1492,7 @@ mod tests {
                 .unwrap()
                 .collect();
             eprintln!("Name filter {name}: {v:?}");
-            assert!(v.len() >= 1);
+            assert!(!v.is_empty());
             for interface in v {
                 assert_eq!(name, interface.name);
             }
@@ -1038,7 +1501,7 @@ mod tests {
             if let Some(index) = interface.index {
                 let v: Vec<_> = InterfaceFilter::new().index(index).get().unwrap().collect();
                 eprintln!("Index filter {index}: {v:?}");
-                assert!(v.len() >= 1);
+                assert!(!v.is_empty());
                 for interface in v {
                     assert_eq!(Some(index), interface.index);
                 }
