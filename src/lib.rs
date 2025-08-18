@@ -357,7 +357,7 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
-                        let mac_address = self.mac_addresses.get(&name).map(|mac| *mac);
+                        let mac_address = self.mac_addresses.get(&name).copied();
 
                         return Some(Interface {
                             name,
