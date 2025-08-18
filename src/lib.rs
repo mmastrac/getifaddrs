@@ -800,10 +800,11 @@ mod windows {
 
                 let (current, current_unicast) = self.advance()?;
 
-                // If only looking for mac addresses, skip the rest
-                if !self.filter.family_filter(AddressFamily::V6)
-                    && !self.filter.family_filter(AddressFamily::V4)
-                {
+                let sa_family = unsafe { (*current_unicast).Address.lpSockaddr.sa_family };
+                if sa_family == AF_INET && !self.filter.family_filter(AddressFamily::V4) {
+                    continue;
+                }
+                if sa_family == AF_INET6 && !self.filter.family_filter(AddressFamily::V6) {
                     continue;
                 }
 
