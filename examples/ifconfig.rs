@@ -8,7 +8,11 @@ fn main() {
         for address in &interface.address {
             match address {
                 Address::V4(..) | Address::V6(..) => {
-                    println!("  IP{:?}: {:?}", address.family(), address.ip_addr().unwrap());
+                    println!(
+                        "  IP{:?}: {:?}",
+                        address.family(),
+                        address.ip_addr().unwrap()
+                    );
                     if let Some(netmask) = address.netmask() {
                         println!("    Netmask: {}", netmask);
                     }
@@ -17,7 +21,13 @@ fn main() {
                     }
                 }
                 Address::Mac(addr) => {
-                    println!("  Ether: {}", addr.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(":"));
+                    println!(
+                        "  Ether: {}",
+                        addr.iter()
+                            .map(|b| format!("{:02x}", b))
+                            .collect::<Vec<_>>()
+                            .join(":")
+                    );
                 }
             }
         }

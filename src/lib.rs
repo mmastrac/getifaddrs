@@ -94,7 +94,7 @@ impl Addresses {
         self.addresses.get(&family)
     }
 
-    pub fn iter(&self) -> AddressesIter {
+    pub fn iter(&self) -> AddressesIter<'_> {
         IntoIterator::into_iter(self)
     }
 
@@ -341,10 +341,6 @@ impl InterfaceFilter {
                 }]
             })
             .unwrap_or(true)
-    }
-
-    fn has_family(&self, family: AddressFamily) -> bool {
-        self.family_filter(family)
     }
 
     /// Applies the filter and returns an iterator over the matching interfaces.
@@ -710,8 +706,8 @@ mod windows {
     impl InterfaceIterator {
         pub fn new(filter: InterfaceFilter) -> io::Result<Self> {
             let family = match (
-                filter.has_family(AddressFamily::V4),
-                filter.has_family(AddressFamily::V6),
+                filter.family_filter(AddressFamily::V4),
+                filter.family_filter(AddressFamily::V6),
             ) {
                 (true, false) => Family::V4,
                 (false, true) => Family::V6,
@@ -956,11 +952,11 @@ mod windows {
             .to_string_lossy()
             .into_owned();
 
-        let address = sockaddr_to_ipaddr(unicast_addr.Address.lpSockaddr)?;
+        let ip_addr = sockaddr_to_ipaddr(unicast_addr.Address.lpSockaddr)?;
 
         let flags = convert_to_flags(adapter);
 
-        let netmask = match address {
+        let netmask = match ip_addr {
             IpAddr::V4(_) => {
                 let mut mask: u32 = 0;
                 unsafe {
@@ -974,6 +970,25 @@ mod windows {
                     0xffff, 0xffff, 0xffff, 0xffff, 0, 0, 0, 0,
                 )))
             }
+        };
+
+        let address = match ip_addr {
+            IpAddr::V4(addr) => Address::V4(NetworkAddress {
+                address: addr,
+                netmask: netmask.and_then(|n| match n {
+                    IpAddr::V4(netmask) => Some(netmask),
+                    _ => None,
+                }),
+                associated_address: None, // Windows doesn't provide associated addresses
+            }),
+            IpAddr::V6(addr) => Address::V6(NetworkAddress {
+                address: addr,
+                netmask: netmask.and_then(|n| match n {
+                    IpAddr::V6(netmask) => Some(netmask),
+                    _ => None,
+                }),
+                associated_address: None, // Windows doesn't provide associated addresses
+            }),
         };
 
         // Get the LUID and convert it to an index
@@ -1010,18 +1025,16 @@ mod windows {
         adapter: &IP_ADAPTER_ADDRESSES_LH,
     ) -> io::Result<Option<Interface>> {
         // Extract MAC address from adapter.PhysicalAddress
-        let mac_address = unsafe {
-            let len = adapter.PhysicalAddressLength as usize;
-            if len == 6 {
-                let mut mac = [0u8; 6];
-                mac.copy_from_slice(&adapter.PhysicalAddress[..6]);
-                if mac.iter().all(|b| *b == 0) {
-                    return Ok(None);
-                }
-                mac
-            } else {
+        let len = adapter.PhysicalAddressLength as usize;
+        let mac_address = if len == 6 {
+            let mut mac = [0u8; 6];
+            mac.copy_from_slice(&adapter.PhysicalAddress[..6]);
+            if mac.iter().all(|b| *b == 0) {
                 return Ok(None);
             }
+            mac
+        } else {
+            return Ok(None);
         };
 
         let description = to_os_string(adapter.FriendlyName)
