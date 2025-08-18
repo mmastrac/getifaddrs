@@ -768,27 +768,29 @@ mod windows {
                 if !self.yielded_mac && !self.current.is_null() {
                     self.yielded_mac = true;
 
-                    let adapter = unsafe { &*self.current };
-                    if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
-                        if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
-                            continue;
-                        }
-                    }
-    
-                    if let Ok(Some(interface)) = convert_to_interface_mac(adapter)
-                    {
-                        if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
-                            if name != &interface.name {
+                    if self.filter.family_filter(AddressFamily::Mac) {
+                        let adapter = unsafe { &*self.current };
+                        if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
+                            if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
                                 continue;
                             }
                         }
-                        if let Some(InterfaceFilterCriteria::Index(index)) = &self.filter.criteria {
-                            if Some(*index) != interface.index {
-                                continue;
+        
+                        if let Ok(Some(interface)) = convert_to_interface_mac(adapter)
+                        {
+                            if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
+                                if name != &interface.name {
+                                    continue;
+                                }
                             }
-                        }
+                            if let Some(InterfaceFilterCriteria::Index(index)) = &self.filter.criteria {
+                                if Some(*index) != interface.index {
+                                    continue;
+                                }
+                            }
 
-                        return Some(interface);
+                            return Some(interface);
+                        }
                     }
                 }
 
