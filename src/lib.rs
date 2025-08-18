@@ -668,7 +668,7 @@ mod unix {
 #[cfg(windows)]
 mod windows {
     use super::{
-        AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        Address, AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
         InterfaceIndex,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
@@ -730,6 +730,7 @@ mod windows {
             let current_unicast = self.current_unicast;
             loop {
                 if self.current_unicast.is_null() {
+                    self.yielded_mac = false;
                     self.current = unsafe { (*self.current).Next };
                     if self.current.is_null() {
                         return Some((current, current_unicast));
@@ -753,9 +754,10 @@ mod windows {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
+                // Yield the mac address first for any adapter
                 if !self.yielded_mac && !self.current.is_null() {
                     self.yielded_mac = true;
-                    if let Ok(Some(interface)) = convert_to_interface_mac(adapter) {
+                    if let Ok(Some(interface)) = convert_to_interface_mac( unsafe { &*current }) {
                         return Some(interface);
                     }
                 }
