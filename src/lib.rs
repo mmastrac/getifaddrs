@@ -764,15 +764,6 @@ mod windows {
 
         fn next(&mut self) -> Option<Self::Item> {
             loop {
-                // Yield the mac address first for any adapter
-                if !self.yielded_mac && !self.current.is_null() {
-                    self.yielded_mac = true;
-                    if let Ok(Some(interface)) = convert_to_interface_mac(unsafe { &*self.current })
-                    {
-                        return Some(interface);
-                    }
-                }
-
                 let (current, current_unicast) = self.advance()?;
                 let adapter = unsafe { &*current };
                 let unicast_addr = unsafe { &*current_unicast };
@@ -780,6 +771,26 @@ mod windows {
                 if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
                     if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
                         continue;
+                    }
+                }
+
+                // Yield the mac address first for any adapter
+                if !self.yielded_mac && !self.current.is_null() {
+                    self.yielded_mac = true;
+                    if let Ok(Some(interface)) = convert_to_interface_mac(unsafe { &*self.current })
+                    {
+                        if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
+                            if name != &interface.name {
+                                continue;
+                            }
+                        }
+                        if let Some(InterfaceFilterCriteria::Index(index)) = &self.filter.criteria {
+                            if Some(*index) != interface.index {
+                                continue;
+                            }
+                        }
+
+                        return Some(interface);
                     }
                 }
 
