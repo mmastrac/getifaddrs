@@ -1105,7 +1105,7 @@ mod windows {
                         IpAddr::V6(netmask) => Some(netmask),
                         _ => None,
                     }),
-                    associated_address: None,
+                    associated_address,
                 })
             }
         };
