@@ -56,7 +56,6 @@ fn main() -> std::io::Result<()> {
         if let Some(netmask) = interface.address.netmask() {
             println!("  Netmask: {}", netmask);
         }
-        #[cfg(not(windows))]
         if let Some(associated_address) = interface.address.associated_address() {
             println!("  Associated Address: {}", associated_address);
         }
