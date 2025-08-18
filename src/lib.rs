@@ -768,13 +768,14 @@ mod windows {
                 if !self.yielded_mac && !self.current.is_null() {
                     self.yielded_mac = true;
 
+                    let adapter = unsafe { &*self.current };
                     if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
                         if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
                             continue;
                         }
                     }
     
-                    if let Ok(Some(interface)) = convert_to_interface_mac(unsafe { &*self.current })
+                    if let Ok(Some(interface)) = convert_to_interface_mac(adapter)
                     {
                         if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
                             if name != &interface.name {
