@@ -979,7 +979,6 @@ mod windows {
                     IpAddr::V4(netmask) => Some(netmask),
                     _ => None,
                 }),
-                associated_address: None, // Windows doesn't provide associated addresses
             }),
             IpAddr::V6(addr) => Address::V6(NetworkAddress {
                 address: addr,
@@ -987,7 +986,6 @@ mod windows {
                     IpAddr::V6(netmask) => Some(netmask),
                     _ => None,
                 }),
-                associated_address: None, // Windows doesn't provide associated addresses
             }),
         };
 
