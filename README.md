@@ -28,6 +28,7 @@ getifaddrs = "0.4"
 
 ## Example
 
+Iterate over all network interfaces:
 
 ```rust
 use getifaddrs::{getifaddrs, InterfaceFlags};
@@ -60,27 +61,39 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-The repository also contains an example that prints the network interface
-information for the current machine in the style of the `ifconfig` command.
+Collect all network interfaces and print the associated items in the rough style
+of the `ifconfig` command:
 
-```bash
-$ cargo run --example ifconfig
+```rust
+use getifaddrs::{getifaddrs, Address, Interfaces};
 
-lo0
-  Flags: InterfaceFlags(UP | RUNNING | LOOPBACK | MULTICAST)
-  IPV4: 127.0.0.1
-    Netmask: 255.0.0.0
-    Associated: 127.0.0.1
-  IPV6: fe80::1
-    Netmask: ffff:ffff:ffff:ffff::
-  Index: 1
-
-en0
-  Flags: InterfaceFlags(UP | RUNNING | BROADCAST | MULTICAST)
-  Ether: 11:22:33:44:55:66
-  Index: 2
-
-...
+let interfaces = getifaddrs().unwrap().collect::<Interfaces>();
+for (index, interface) in interfaces {
+    println!("{}", interface.name);
+    println!("  Flags: {:?}", interface.flags);
+    for address in &interface.address {
+        match address {
+            Address::V4(..) | Address::V6(..) => {
+                println!("  IP{:?}: {:?}", address.family(), address.ip_addr().unwrap());
+                if let Some(netmask) = address.netmask() {
+                    println!("    Netmask: {}", netmask);
+                }
+                #[cfg(not(windows))]
+                if let Some(associated_address) = address.associated_address() {
+                    println!("    Associated: {}", associated_address);
+                }
+            }
+            Address::Mac(addr) => {
+                println!(
+                    "  Ether: {}",
+                    addr.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(":")
+                );
+            }
+        }
+    }
+    println!("  Index: {}", index);
+    println!();
+}
 ```
 
 ## License
