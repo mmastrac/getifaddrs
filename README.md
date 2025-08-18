@@ -12,10 +12,21 @@ and Windows.
 
 ## Features
 
-- Retrieve network interface information (name, IP address, netmask, flags, etc.)
+- Retrieve network interface information (name, IP address, netmask, flags, mac
+  address,etc.)
 - Filter interfaces based on various criteria (loopback, IPv4/IPv6, name, index)
 - Cross-platform support (Unix-like systems and Windows)
-- Provides a cross-platform implementation of [`if_indextoname`](https://docs.rs/getifaddrs/latest/getifaddrs/fn.if_indextoname.html) and [`if_nametoindex`](https://docs.rs/getifaddrs/latest/getifaddrs/fn.if_nametoindex.html)
+- Provides a cross-platform implementation of
+  [`if_indextoname`](https://docs.rs/getifaddrs/latest/getifaddrs/fn.if_indextoname.html)
+  and
+  [`if_nametoindex`](https://docs.rs/getifaddrs/latest/getifaddrs/fn.if_nametoindex.html)
+
+## License
+
+This project is licensed under the
+[MIT](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-MIT) or
+[APACHE](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-APACHE)
+license.
 
 ## Usage
 
@@ -95,10 +106,3 @@ for (index, interface) in interfaces {
     println!();
 }
 ```
-
-## License
-
-This project is licensed under the
-[MIT](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-MIT) or
-[APACHE](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-APACHE)
-license.
