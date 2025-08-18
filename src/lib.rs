@@ -46,6 +46,8 @@ pub struct Interface {
     pub associated_address: Option<std::net::IpAddr>,
     /// The netmask of the interface, if available.
     pub netmask: Option<std::net::IpAddr>,
+    /// The MAC address of the interface, if available.
+    pub mac_address: Option<[u8; 6]>,
     /// The flags indicating the interface's properties and state.
     pub flags: InterfaceFlags,
     /// The index of the interface, if available.
@@ -156,11 +158,13 @@ mod unix {
     use std::ffi::CStr;
     use std::io;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::collections::BTreeMap;
 
     pub struct InterfaceIterator {
         ifaddrs: *mut libc::ifaddrs,
         current: *mut libc::ifaddrs,
         filter: InterfaceFilter,
+        mac_addresses: BTreeMap<String, [u8; 6]>,
     }
 
     impl InterfaceIterator {
@@ -170,10 +174,75 @@ mod unix {
             if result != 0 {
                 return Err(io::Error::last_os_error());
             }
+
+            // Gather MAC addresses for interfaces
+            let mut mac_addresses = BTreeMap::new();
+            let mut current = ifaddrs;
+            while !current.is_null() {
+                let ifaddr = unsafe { &*current };
+                if let Some(addr) = unsafe { ifaddr.ifa_addr.as_ref() } {
+                    #[allow(unused_mut, unused_assignments)]
+                    let mut mac_address: Option<[u8; 6]> = None;
+
+                    #[cfg(any(target_os = "linux", target_os = "android"))]
+                    {
+                        mac_address = unsafe {
+                            // Extract MAC address for Linux/Android (AF_PACKET) and macOS/BSD (AF_LINK)
+                            if addr.sa_family == libc::AF_PACKET as libc::sa_family_t {
+                                let sll = addr as *const _ as *const libc::sockaddr_ll;
+                                let mac = (*sll).sll_addr;
+                                Some([
+                                    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+                                ])
+                            } else {
+                                None
+                            }
+                        };
+                    }
+
+                    #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+                    {
+                        mac_address = unsafe {
+                            if addr.sa_family == libc::AF_LINK as libc::sa_family_t {
+                                let sdl = addr as *const _ as *const libc::sockaddr_dl;
+                                let mac_offset = (*sdl).sdl_nlen as usize;
+                                let mac_len = (*sdl).sdl_alen as usize;
+                                if mac_len == 6 {
+                                    let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset);
+                                    let mut mac = [0u8; 6];
+                                    #[allow(clippy::needless_range_loop)]
+                                    for i in 0..6 {
+                                        mac[i] = *mac_ptr.add(i) as u8;
+                                    }
+                                    Some(mac)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        };
+                    }
+
+                    if let Some(mac) = mac_address {
+                        // Filter out zeroed MAC addresses
+                        if mac != [0, 0, 0, 0, 0, 0] {
+                            let name = unsafe {
+                                CStr::from_ptr(ifaddr.ifa_name)
+                                    .to_string_lossy()
+                                    .into_owned()
+                            };
+                            mac_addresses.insert(name, mac);
+                        }
+                    }
+                }
+                current = ifaddr.ifa_next;
+            }
             Ok(InterfaceIterator {
                 ifaddrs,
                 current: ifaddrs,
                 filter,
+                mac_addresses,
             })
         }
     }
@@ -185,7 +254,6 @@ mod unix {
             while !self.current.is_null() {
                 let ifaddr = unsafe { &*self.current };
                 self.current = ifaddr.ifa_next;
-
                 if let Some(addr) = unsafe { ifaddr.ifa_addr.as_ref() } {
                     if addr.sa_family == libc::AF_INET as libc::sa_family_t
                         || addr.sa_family == libc::AF_INET6 as libc::sa_family_t
@@ -292,11 +360,14 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
+                        let mac_address = self.mac_addresses.get(&name).copied();
+
                         return Some(Interface {
                             name,
                             address,
                             associated_address,
                             netmask,
+                            mac_address,
                             flags,
                             index,
                         });
@@ -665,11 +736,23 @@ mod windows {
             (format!("if{:#x}", luid), None)
         };
 
+        // Extract MAC address from adapter.PhysicalAddress
+        let mac_address = unsafe {
+            let len = adapter.PhysicalAddressLength as usize;
+            if len == 6 {
+                let mut mac = [0u8; 6];
+                mac.copy_from_slice(&adapter.PhysicalAddress[..6]);
+                Some(mac)
+            } else {
+                None
+            }
+        };
         Ok(Interface {
             name,
             description,
             address,
             netmask,
+            mac_address,
             flags,
             index,
         })
