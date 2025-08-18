@@ -84,16 +84,35 @@ impl FromIterator<Interface> for Interfaces {
     }
 }
 
+/// A collection of addresses, keyed by [`AddressFamily`].
 #[derive(Default, Debug)]
 pub struct Addresses {
     addresses: BTreeMap<AddressFamily, Address>,
 }
 
 impl Addresses {
+    /// Returns the address associated with the given address family.
     pub fn get(&self, family: AddressFamily) -> Option<&Address> {
         self.addresses.get(&family)
     }
 
+    /// Returns `true` if the collection contains an address of the given
+    /// family.
+    pub fn has(&self, family: AddressFamily) -> bool {
+        self.addresses.contains_key(&family)
+    }
+
+    /// Returns `true` if the collection is empty.
+    pub fn is_empty(&self) -> bool {
+        self.addresses.is_empty()
+    }
+
+    /// Returns the number of addresses in the collection.
+    pub fn len(&self) -> usize {
+        self.addresses.len()
+    }
+
+    /// Returns an iterator over the addresses in the collection.
     pub fn iter(&self) -> AddressesIter<'_> {
         IntoIterator::into_iter(self)
     }
@@ -103,6 +122,7 @@ impl Addresses {
     }
 }
 
+/// An iterator over the addresses in a [`Addresses`] collection.
 pub struct AddressesIter<'a> {
     iter: std::collections::btree_map::Values<'a, AddressFamily, Address>,
 }
@@ -263,13 +283,18 @@ enum InterfaceFilterCriteria {
 ///
 /// ```
 /// # use std::io;
-/// # use getifaddrs::InterfaceFilter;
+/// # use getifaddrs::{InterfaceFilter, AddressFamily, Interfaces};
 /// # fn main() -> io::Result<()> {
 /// // Get all IPv4 interfaces
 /// let v4_interfaces = InterfaceFilter::new().v4().get()?;
 ///
 /// // Get all IPv6 interfaces
 /// let v6_interfaces = InterfaceFilter::new().v6().get()?;
+///
+/// // Get all IPv4 interfaces with a MAC address. Note that you need
+/// // to collect v4 and mac addresses, then filter for interfaces with both.
+/// let v4_mac_interfaces = InterfaceFilter::new().v4().mac().get()?.collect::<Interfaces>()
+///     .iter().filter(|(_, interface)| interface.address.has(AddressFamily::Mac) && interface.address.has(AddressFamily::V4));
 ///
 /// // Get loopback interfaces
 /// let loopback_interfaces = InterfaceFilter::new().loopback().get()?;
@@ -306,6 +331,12 @@ impl InterfaceFilter {
         self
     }
 
+    /// Filters for interfaces with the specified address family.
+    ///
+    /// If no address family is specified, no filtering is applied. The first
+    /// address filter specified will limit the returned addresses to the
+    /// specified family. Further family filters will union the returned
+    /// addresses with the given type.
     pub fn family(mut self, family: AddressFamily) -> Self {
         let address = self.address.get_or_insert([false; 3]);
         match family {
@@ -316,17 +347,32 @@ impl InterfaceFilter {
         self
     }
 
-    /// Filters for IPv4 interfaces.
+    /// Filters for IPv4 interfaces. Equivalent to `family(V4)`.
+    ///
+    /// If no address family is specified, no filtering is applied. The first
+    /// address filter specified will limit the returned addresses to the
+    /// specified family. Further family filters will union the returned
+    /// addresses with the given type.
     pub fn v4(self) -> Self {
         self.family(AddressFamily::V4)
     }
 
-    /// Filters for IPv6 interfaces.
+    /// Filters for IPv6 interfaces. Equivalent to `family(V6)`.
+    ///
+    /// If no address family is specified, no filtering is applied. The first
+    /// address filter specified will limit the returned addresses to the
+    /// specified family. Further family filters will union the returned
+    /// addresses with the given type.
     pub fn v6(self) -> Self {
         self.family(AddressFamily::V6)
     }
 
-    /// Filters for MAC addresses.
+    /// Filters for MAC addresses. Equivalent to `family(Mac)`.
+    ///
+    /// If no address family is specified, no filtering is applied. The first
+    /// address filter specified will limit the returned addresses to the
+    /// specified family. Further family filters will union the returned
+    /// addresses with the given type.
     pub fn mac(self) -> Self {
         self.family(AddressFamily::Mac)
     }
@@ -361,11 +407,11 @@ impl InterfaceFilter {
 
     /// Collects the interfaces into a `BTreeMap` of interface index to
     /// interface addresses.
-    /// 
+    ///
     /// ## Limitations
-    /// 
-    /// This will only collect interfaces that contain an non-empty index. 
-    /// 
+    ///
+    /// This will only collect interfaces that contain an non-empty index.
+    ///
     /// If multiple addresses are associated with an interface and address
     /// family, this will return the first one.
     pub fn collect(self) -> std::io::Result<Interfaces> {
@@ -1205,13 +1251,30 @@ mod windows {
 
 /// Returns an iterator for all network interfaces on the system.
 ///
-/// This function creates a new [`InterfaceFilter`] with default settings and uses it to retrieve
-/// all network interfaces. It is equivalent to calling `InterfaceFilter::new().get()`.
+/// This function creates a new [`InterfaceFilter`] with default settings and
+/// uses it to retrieve all network interfaces. It is equivalent to calling
+/// `InterfaceFilter::new().get()`.
 ///
 /// # Returns
 ///
-/// Returns a [`Result`] containing an [`Iterator`] over [`Interface`] items on success, or a [`std::io::Error`]
-/// if there was a problem retrieving the network interfaces.
+/// Returns a [`Result`] containing an [`Iterator`] over [`Interface`] items on
+/// success, or a [`std::io::Error`] if there was a problem retrieving the
+/// network interfaces.
+///
+/// # Collecting
+///
+/// The output of this function can be collected into a [`Interfaces`]
+/// collection using the `collect` method which will return a [`BTreeMap`] of
+/// interface index to interface addresses.
+///
+/// ```rust
+/// # use getifaddrs::{getifaddrs, Interfaces};
+/// let interfaces = getifaddrs().unwrap().collect::<Interfaces>();
+///
+/// for (index, interface) in interfaces {
+///     eprintln!("Interface {index}: {interface:#?}");
+/// }
+/// ```
 pub fn getifaddrs() -> std::io::Result<impl Iterator<Item = Interface>> {
     InterfaceFilter::new().get()
 }
