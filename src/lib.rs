@@ -225,12 +225,15 @@ mod unix {
                     }
 
                     if let Some(mac) = mac_address {
-                        let name = unsafe {
-                            CStr::from_ptr(ifaddr.ifa_name)
-                                .to_string_lossy()
-                                .into_owned()
-                        };
-                        mac_addresses.insert(name, mac);
+                        // Filter out zeroed MAC addresses
+                        if mac != [0, 0, 0, 0, 0, 0] {
+                            let name = unsafe {
+                                CStr::from_ptr(ifaddr.ifa_name)
+                                    .to_string_lossy()
+                                    .into_owned()
+                            };
+                            mac_addresses.insert(name, mac);
+                        }
                     }
                 }
                 current = ifaddr.ifa_next;
