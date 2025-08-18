@@ -1422,13 +1422,55 @@ mod tests {
             .unwrap()
             .collect::<Vec<_>>();
 
-        assert_eq!(v4_mac.len(), v4.len() + mac.len());
-        assert_eq!(v6_mac.len(), v6.len() + mac.len());
-        assert_eq!(v4_v6.len(), v4.len() + v6.len());
+        assert_eq!(
+            v4_mac.len(),
+            v4.len() + mac.len(),
+            "v4_mac = {:?} != v4 = {:?} + mac = {:?}",
+            v4_mac,
+            v4,
+            mac
+        );
+        assert_eq!(
+            v6_mac.len(),
+            v6.len() + mac.len(),
+            "v6_mac = {:?} != v6 = {:?} + mac = {:?}",
+            v6_mac,
+            v6,
+            mac
+        );
+        assert_eq!(
+            v4_v6.len(),
+            v4.len() + v6.len(),
+            "v4_v6 = {:?} != v4 = {:?} + v6 = {:?}",
+            v4_v6,
+            v4,
+            v6
+        );
 
-        assert_eq!(v4_mac.len() + v6.len(), total);
-        assert_eq!(v6_mac.len() + v4.len(), total);
-        assert_eq!(v4_v6.len() + mac.len(), total);
+        assert_eq!(
+            v4_mac.len() + v6.len(),
+            total,
+            "v4_mac = {:?} + v6 = {:?} != total = {:?}",
+            v4_mac,
+            v6,
+            total
+        );
+        assert_eq!(
+            v6_mac.len() + v4.len(),
+            total,
+            "v6_mac = {:?} + v4 = {:?} != total = {:?}",
+            v6_mac,
+            v4,
+            total
+        );
+        assert_eq!(
+            v4_v6.len() + mac.len(),
+            total,
+            "v4_v6 = {:?} + mac = {:?} != total = {:?}",
+            v4_v6,
+            mac,
+            total
+        );
     }
 
     #[test]
