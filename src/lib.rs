@@ -775,15 +775,17 @@ mod windows {
                                 continue;
                             }
                         }
-        
-                        if let Ok(Some(interface)) = convert_to_interface_mac(adapter)
-                        {
-                            if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
+
+                        if let Ok(Some(interface)) = convert_to_interface_mac(adapter) {
+                            if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria
+                            {
                                 if name != &interface.name {
                                     continue;
                                 }
                             }
-                            if let Some(InterfaceFilterCriteria::Index(index)) = &self.filter.criteria {
+                            if let Some(InterfaceFilterCriteria::Index(index)) =
+                                &self.filter.criteria
+                            {
                                 if Some(*index) != interface.index {
                                     continue;
                                 }
@@ -795,9 +797,11 @@ mod windows {
                 }
 
                 let (current, current_unicast) = self.advance()?;
-                
+
                 // If only looking for mac addresses, skip the rest
-                if !self.filter.family_filter(AddressFamily::V6) && !self.filter.family_filter(AddressFamily::V4) {
+                if !self.filter.family_filter(AddressFamily::V6)
+                    && !self.filter.family_filter(AddressFamily::V4)
+                {
                     continue;
                 }
 
