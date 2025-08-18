@@ -361,6 +361,13 @@ impl InterfaceFilter {
 
     /// Collects the interfaces into a `BTreeMap` of interface index to
     /// interface addresses.
+    /// 
+    /// ## Limitations
+    /// 
+    /// This will only collect interfaces that contain an non-empty index. 
+    /// 
+    /// If multiple addresses are associated with an interface and address
+    /// family, this will return the first one.
     pub fn collect(self) -> std::io::Result<Interfaces> {
         Ok(self.get()?.collect())
     }
