@@ -28,6 +28,7 @@ getifaddrs = "0.4"
 
 ## Example
 
+
 ```rust
 use getifaddrs::{getifaddrs, InterfaceFlags};
 
@@ -58,6 +59,32 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
+The repository also contains an example that prints the network interface
+information for the current machine in the style of the `ifconfig` command.
+
+```bash
+$ cargo run --example ifconfig
+
+lo0
+  Flags: InterfaceFlags(UP | RUNNING | LOOPBACK | MULTICAST)
+  IPV4: 127.0.0.1
+    Netmask: 255.0.0.0
+    Associated: 127.0.0.1
+  IPV6: fe80::1
+    Netmask: ffff:ffff:ffff:ffff::
+  Index: 1
+
+en0
+  Flags: InterfaceFlags(UP | RUNNING | BROADCAST | MULTICAST)
+  Ether: 11:22:33:44:55:66
+  Index: 2
+
+...
+```
+
 ## License
 
-This project is licensed under the [MIT](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-MIT) or [APACHE](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-APACHE) license.
+This project is licensed under the
+[MIT](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-MIT) or
+[APACHE](https://github.com/mmastrac/getifaddrs/blob/master/LICENSE-APACHE)
+license.

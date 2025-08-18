@@ -94,12 +94,16 @@ impl Addresses {
         self.addresses.get(&family)
     }
 
+    pub fn iter(&self) -> AddressesIter {
+        IntoIterator::into_iter(self)
+    }
+
     fn insert(&mut self, family: AddressFamily, address: Address) {
         self.addresses.insert(family, address);
     }
 }
 
-struct AddressesIter<'a> {
+pub struct AddressesIter<'a> {
     iter: std::collections::btree_map::Values<'a, AddressFamily, Address>,
 }
 
@@ -111,8 +115,10 @@ impl<'a> Iterator for AddressesIter<'a> {
     }
 }
 
-impl Addresses {
-    pub fn iter(&self) -> impl Iterator<Item = &Address> {
+impl<'a> IntoIterator for &'a Addresses {
+    type Item = &'a Address;
+    type IntoIter = AddressesIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
         AddressesIter {
             iter: self.addresses.values(),
         }
@@ -335,6 +341,10 @@ impl InterfaceFilter {
                 }]
             })
             .unwrap_or(true)
+    }
+
+    fn has_family(&self, family: AddressFamily) -> bool {
+        self.family_filter(family)
     }
 
     /// Applies the filter and returns an iterator over the matching interfaces.
@@ -669,8 +679,8 @@ mod unix {
 #[cfg(windows)]
 mod windows {
     use super::{
-        Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
-        InterfaceIndex,
+        Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria,
+        InterfaceFlags, InterfaceIndex,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
     use windows_sys::Win32::Foundation::{
@@ -699,7 +709,10 @@ mod windows {
 
     impl InterfaceIterator {
         pub fn new(filter: InterfaceFilter) -> io::Result<Self> {
-            let family = match (filter.has_family(AddressFamily::V4), filter.has_family(AddressFamily::V6)) {
+            let family = match (
+                filter.has_family(AddressFamily::V4),
+                filter.has_family(AddressFamily::V6),
+            ) {
                 (true, false) => Family::V4,
                 (false, true) => Family::V6,
                 _ => Family::UNSPEC,
@@ -758,7 +771,8 @@ mod windows {
                 // Yield the mac address first for any adapter
                 if !self.yielded_mac && !self.current.is_null() {
                     self.yielded_mac = true;
-                    if let Ok(Some(interface)) = convert_to_interface_mac( unsafe { &*self.current }) {
+                    if let Ok(Some(interface)) = convert_to_interface_mac(unsafe { &*self.current })
+                    {
                         return Some(interface);
                     }
                 }
