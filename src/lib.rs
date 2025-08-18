@@ -793,6 +793,12 @@ mod windows {
                 }
 
                 let (current, current_unicast) = self.advance()?;
+                
+                // If only looking for mac addresses, skip the rest
+                if !self.filter.family_filter(AddressFamily::V6) && !self.filter.family_filter(AddressFamily::V4) {
+                    continue;
+                }
+
                 let adapter = unsafe { &*current };
                 let unicast_addr = unsafe { &*current_unicast };
 
