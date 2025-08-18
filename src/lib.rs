@@ -705,12 +705,14 @@ mod windows {
 
     impl InterfaceIterator {
         pub fn new(filter: InterfaceFilter) -> io::Result<Self> {
+            // We can only use this as an optimization if not looking for mac addresses
             let family = match (
                 filter.family_filter(AddressFamily::V4),
                 filter.family_filter(AddressFamily::V6),
+                filter.family_filter(AddressFamily::Mac),
             ) {
-                (true, false) => Family::V4,
-                (false, true) => Family::V6,
+                (true, false, false) => Family::V4,
+                (false, true, false) => Family::V6,
                 _ => Family::UNSPEC,
             };
             let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
@@ -1334,51 +1336,99 @@ mod tests {
     #[test]
     fn test_filter_address_type() {
         let total = getifaddrs().unwrap().count();
-        let mut v4_count = 0;
-        for interface in InterfaceFilter::new().v4().get().unwrap() {
+
+        let v4 = InterfaceFilter::new()
+            .v4()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        for interface in &v4 {
             assert!(
                 interface.address.is_ipv4(),
                 "Expected v4 only: {interface:#?}"
             );
-            v4_count += 1;
         }
-        let mut v6_count = 0;
-        for interface in InterfaceFilter::new().v6().get().unwrap() {
+
+        let v6 = InterfaceFilter::new()
+            .v6()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        for interface in &v6 {
             assert!(
                 interface.address.is_ipv6(),
                 "Expected v6 only: {interface:#?}"
             );
-            v6_count += 1;
         }
-        let mut mac_count = 0;
-        for interface in InterfaceFilter::new().mac().get().unwrap() {
+
+        let mac = InterfaceFilter::new()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        for interface in &mac {
             assert!(
                 interface.address.is_mac(),
                 "Expected mac only: {interface:#?}"
             );
-            mac_count += 1;
         }
+
         assert_eq!(
-            v4_count + v6_count + mac_count,
+            v4.len() + v6.len() + mac.len(),
             total,
             "v4 = {:?} v6 = {:?} mac = {:?} all = {:?}",
-            InterfaceFilter::new()
-                .v4()
-                .get()
-                .unwrap()
-                .collect::<Vec<_>>(),
-            InterfaceFilter::new()
-                .v6()
-                .get()
-                .unwrap()
-                .collect::<Vec<_>>(),
-            InterfaceFilter::new()
-                .mac()
-                .get()
-                .unwrap()
-                .collect::<Vec<_>>(),
+            v4,
+            v6,
+            mac,
             getifaddrs().unwrap().collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_filter_address_type_with_mac() {
+        let total = getifaddrs().unwrap().count();
+
+        let v4_mac = InterfaceFilter::new()
+            .v4()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v4 = InterfaceFilter::new()
+            .v4()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v6_mac = InterfaceFilter::new()
+            .v6()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v6 = InterfaceFilter::new()
+            .v6()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let v4_v6 = InterfaceFilter::new()
+            .v4()
+            .v6()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+        let mac = InterfaceFilter::new()
+            .mac()
+            .get()
+            .unwrap()
+            .collect::<Vec<_>>();
+
+        assert_eq!(v4_mac.len(), v4.len() + mac.len());
+        assert_eq!(v6_mac.len(), v6.len() + mac.len());
+        assert_eq!(v4_v6.len(), v4.len() + v6.len());
+
+        assert_eq!(v4_mac.len() + v6.len(), total);
+        assert_eq!(v6_mac.len() + v4.len(), total);
+        assert_eq!(v4_v6.len() + mac.len(), total);
     }
 
     #[test]
