@@ -218,6 +218,8 @@ mod unix {
                                 } else {
                                     None
                                 }
+                            } else {
+                                None
                             }
                         };
                     }
