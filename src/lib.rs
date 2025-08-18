@@ -357,11 +357,7 @@ mod unix {
                                 .and_then(|sa| sockaddr_to_ipaddr(sa).ok())
                         };
 
-                        let mac_address = if let Some(mac) = self.mac_addresses.get(&name) {
-                            Some(*mac)
-                        } else {
-                            None
-                        };
+                        let mac_address = self.mac_addresses.get(&name).map(|mac| *mac);
 
                         return Some(Interface {
                             name,
