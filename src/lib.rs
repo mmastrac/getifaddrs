@@ -52,7 +52,7 @@ pub struct Interface<A: sealed::Addressable = Address> {
 
 /// A map of interface index to interface addresses. Note that this assumes each
 /// interface has at most one address of each family.
-/// 
+///
 /// ```
 /// # use getifaddrs::{getifaddrs, Interface, Interfaces};
 /// # fn main() -> std::io::Result<()> {
@@ -114,7 +114,7 @@ impl<'a> Iterator for AddressesIter<'a> {
 impl Addresses {
     pub fn iter(&self) -> impl Iterator<Item = &Address> {
         AddressesIter {
-            iter: self.addresses.values().into_iter(),
+            iter: self.addresses.values(),
         }
     }
 }
@@ -183,16 +183,16 @@ impl Address {
 
     pub fn netmask(&self) -> Option<IpAddr> {
         match self {
-            Address::V4(addr) => addr.netmask.map(|netmask| IpAddr::V4(netmask)),
-            Address::V6(addr) => addr.netmask.map(|netmask| IpAddr::V6(netmask)),
+            Address::V4(addr) => addr.netmask.map(IpAddr::V4),
+            Address::V6(addr) => addr.netmask.map(IpAddr::V6),
             Address::Mac(_) => None,
         }
     }
 
     pub fn associated_address(&self) -> Option<IpAddr> {
         match self {
-            Address::V4(addr) => addr.associated_address.map(|addr| IpAddr::V4(addr)),
-            Address::V6(addr) => addr.associated_address.map(|addr| IpAddr::V6(addr)),
+            Address::V4(addr) => addr.associated_address.map(IpAddr::V4),
+            Address::V6(addr) => addr.associated_address.map(IpAddr::V6),
             Address::Mac(_) => None,
         }
     }
@@ -1252,8 +1252,7 @@ mod tests {
                 let name_from_index = if_indextoname(index as _).unwrap_or_default();
                 assert_eq!(
                     interface.name, name_from_index,
-                    "Interface name mismatch for index {}",
-                    index
+                    "Interface name mismatch for index {index}"
                 );
 
                 let index_from_name = if_nametoindex(&interface.name).unwrap_or_default();
@@ -1268,9 +1267,8 @@ mod tests {
 
     #[test]
     fn test_collect() {
-        let interfaces: Interfaces =
-            getifaddrs().unwrap().collect();
-        assert!(interfaces.len() > 0);
+        let interfaces: Interfaces = getifaddrs().unwrap().collect();
+        assert!(!interfaces.is_empty());
         eprintln!("{interfaces:#?}");
     }
 
@@ -1335,7 +1333,7 @@ mod tests {
                 .unwrap()
                 .collect();
             eprintln!("Name filter {name}: {v:?}");
-            assert!(v.len() >= 1);
+            assert!(!v.is_empty());
             for interface in v {
                 assert_eq!(name, interface.name);
             }
@@ -1344,7 +1342,7 @@ mod tests {
             if let Some(index) = interface.index {
                 let v: Vec<_> = InterfaceFilter::new().index(index).get().unwrap().collect();
                 eprintln!("Index filter {index}: {v:?}");
-                assert!(v.len() >= 1);
+                assert!(!v.is_empty());
                 for interface in v {
                     assert_eq!(Some(index), interface.index);
                 }
