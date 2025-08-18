@@ -189,6 +189,7 @@ impl Address {
         }
     }
 
+    #[cfg(not(windows))]
     pub fn associated_address(&self) -> Option<IpAddr> {
         match self {
             Address::V4(addr) => addr.associated_address.map(IpAddr::V4),
@@ -668,7 +669,7 @@ mod unix {
 #[cfg(windows)]
 mod windows {
     use super::{
-        Address, AddressFilterCriteria, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
+        Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
         InterfaceIndex,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
@@ -698,10 +699,10 @@ mod windows {
 
     impl InterfaceIterator {
         pub fn new(filter: InterfaceFilter) -> io::Result<Self> {
-            let family = match filter.address {
-                Some(AddressFilterCriteria::V4) => Family::V4,
-                Some(AddressFilterCriteria::V6) => Family::V6,
-                None => Family::UNSPEC,
+            let family = match (filter.has_family(AddressFamily::V4), filter.has_family(AddressFamily::V6)) {
+                (true, false) => Family::V4,
+                (false, true) => Family::V6,
+                _ => Family::UNSPEC,
             };
             let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
             let current = adapters.buf.ptr;
@@ -757,7 +758,7 @@ mod windows {
                 // Yield the mac address first for any adapter
                 if !self.yielded_mac && !self.current.is_null() {
                     self.yielded_mac = true;
-                    if let Ok(Some(interface)) = convert_to_interface_mac( unsafe { &*current }) {
+                    if let Ok(Some(interface)) = convert_to_interface_mac( unsafe { &*self.current }) {
                         return Some(interface);
                     }
                 }
