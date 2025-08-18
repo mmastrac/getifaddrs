@@ -215,7 +215,6 @@ impl Address {
         }
     }
 
-    #[cfg(not(windows))]
     pub fn associated_address(&self) -> Option<IpAddr> {
         match self {
             Address::V4(addr) => addr.associated_address.map(IpAddr::V4),
@@ -258,8 +257,6 @@ pub struct NetworkAddress<T: sealed::NetworkAddressable> {
     /// The netmask associated with the interface.
     pub netmask: Option<T>,
 
-    #[cfg(not(windows))]
-    // TODO: This may be implementable for Windows.
     /// The associated address of the interface. For broadcast interfaces, this
     /// is the broadcast address. For point-to-point interfaces, this is the
     /// peer address.
@@ -1006,15 +1003,15 @@ mod windows {
         if adapter.IfType == MIB_IF_TYPE_LOOPBACK {
             flags |= InterfaceFlags::LOOPBACK;
         }
-        if adapter.IfType == IF_TYPE_IEEE80211 {
+        if adapter.IfType == IF_TYPE_IEEE80211 || adapter.IfType == MIB_IF_TYPE_ETHERNET {
             flags |= InterfaceFlags::BROADCAST | InterfaceFlags::MULTICAST;
         }
         if adapter.IfType == MIB_IF_TYPE_PPP {
             flags |= InterfaceFlags::POINTTOPOINT;
         }
-        if raw_flags & (1 << 4) == 0 {
+        if raw_flags & (1 << 4) != 0 {
             // !NoMulticast
-            flags |= InterfaceFlags::MULTICAST;
+            flags &= !InterfaceFlags::MULTICAST;
         }
         if raw_flags & (1 << 7) != 0 {
             // Ipv4Enabled
@@ -1060,20 +1057,57 @@ mod windows {
         };
 
         let address = match ip_addr {
-            IpAddr::V4(addr) => Address::V4(NetworkAddress {
-                address: addr,
-                netmask: netmask.and_then(|n| match n {
-                    IpAddr::V4(netmask) => Some(netmask),
-                    _ => None,
-                }),
-            }),
-            IpAddr::V6(addr) => Address::V6(NetworkAddress {
-                address: addr,
-                netmask: netmask.and_then(|n| match n {
-                    IpAddr::V6(netmask) => Some(netmask),
-                    _ => None,
-                }),
-            }),
+            IpAddr::V4(addr) => {
+                // Calculate associated address (broadcast for broadcast interfaces)
+                let associated_address = if flags.contains(InterfaceFlags::LOOPBACK) {
+                    if let IpAddr::V4(addr) = addr {
+                        // For loopback interfaces, we can use the address itself, matching
+                        // both macOS and Linux behavior.
+                        Some(addr)
+                    } else {
+                        None
+                    }
+                } else if flags.contains(InterfaceFlags::BROADCAST) {
+                    // For broadcast interfaces, calculate broadcast address from the subnet mask
+                    if let Some(IpAddr::V4(netmask)) = netmask {
+                        let addr_u32 = u32::from(addr);
+                        let netmask_u32 = u32::from(netmask);
+                        let network_addr = addr_u32 & netmask_u32;
+                        let broadcast_addr = network_addr | (!netmask_u32);
+                        Some(std::net::Ipv4Addr::from(broadcast_addr))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                Address::V4(NetworkAddress {
+                    address: addr,
+                    netmask: netmask.and_then(|n| match n {
+                        IpAddr::V4(netmask) => Some(netmask),
+                        _ => None,
+                    }),
+                    associated_address,
+                })
+            }
+            IpAddr::V6(addr) => {
+                let associated_address = if flags.contains(InterfaceFlags::BROADCAST) {
+                    // TODO: We can likely hunt for this in the prefixes
+                    None
+                } else {
+                    None
+                };
+
+                Address::V6(NetworkAddress {
+                    address: addr,
+                    netmask: netmask.and_then(|n| match n {
+                        IpAddr::V6(netmask) => Some(netmask),
+                        _ => None,
+                    }),
+                    associated_address: None,
+                })
+            }
         };
 
         // Get the LUID and convert it to an index
@@ -1602,5 +1636,41 @@ mod tests {
             non_loopback_count,
             "Loopback filter included non-loopback interfaces"
         );
+    }
+
+    #[test]
+    fn test_associated_address() {
+        let interfaces: Vec<_> = getifaddrs().unwrap().collect();
+
+        // Test that associated_address method works for all interfaces
+        for interface in &interfaces {
+            let associated = interface.address.associated_address();
+
+            // For broadcast interfaces, we should have an associated address (broadcast address)
+            if interface.flags.contains(InterfaceFlags::BROADCAST) && interface.address.is_ipv4() {
+                // Broadcast interfaces should have an associated address
+                assert!(
+                    associated.is_some(),
+                    "Broadcast interface {} should have an associated address",
+                    interface.name
+                );
+
+                if let Some(associated_addr) = associated {
+                    // The associated address should be different from the interface address
+                    assert_ne!(
+                        interface.address.ip_addr().unwrap(),
+                        associated_addr,
+                        "Associated address should be different from interface address for broadcast interface {}",
+                        interface.name
+                    );
+                }
+            }
+
+            // For loopback interfaces, associated address might be None
+            if interface.flags.contains(InterfaceFlags::LOOPBACK) {
+                // Loopback interfaces typically don't have associated addresses
+                // This is expected behavior
+            }
+        }
     }
 }

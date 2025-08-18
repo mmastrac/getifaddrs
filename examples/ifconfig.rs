@@ -16,7 +16,6 @@ fn main() {
                     if let Some(netmask) = address.netmask() {
                         println!("    Netmask: {}", netmask);
                     }
-                    #[cfg(not(windows))]
                     if let Some(associated_address) = address.associated_address() {
                         println!("    Associated: {}", associated_address);
                     }
