@@ -181,7 +181,7 @@ mod unix {
             while !current.is_null() {
                 let ifaddr = unsafe { &*current };
                 if let Some(addr) = unsafe { ifaddr.ifa_addr.as_ref() } {
-                    #[allow(clippy::unused_mut, unused_assignments)]
+                    #[allow(unused_mut, unused_assignments)]
                     let mut mac_address: Option<[u8; 6]> = None;
 
                     #[cfg(any(target_os = "linux", target_os = "android"))]
