@@ -29,3 +29,36 @@ jobs:
     - name: Clippy
       run: cargo clippy -- -D clippy::all
       shell: bash
+
+  android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install cross
+      run: cargo install cross
+    
+    - name: Install Android NDK
+      uses: android-actions/setup-android@v3
+      with:
+        ndk-version: '25.2.9519653'
+    
+    - name: Set up Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: aarch64-linux-android
+        override: true
+    
+    - name: Build for Android (aarch64)
+      run: cross build --target aarch64-linux-android --release
+    
+    - name: Build for Android (armv7)
+      run: cross build --target armv7-linux-androideabi --release
+    
+    - name: Build for Android (i686)
+      run: cross build --target i686-linux-android --release
+    
+    - name: Build for Android (x86_64)
+      run: cross build --target x86_64-linux-android --release
