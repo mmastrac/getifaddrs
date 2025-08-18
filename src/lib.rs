@@ -676,7 +676,7 @@ mod unix {
 mod windows {
     use super::{
         Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria,
-        InterfaceFlags, InterfaceIndex,
+        InterfaceFlags, InterfaceIndex, NetworkAddress,
     };
     use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
     use windows_sys::Win32::Foundation::{
