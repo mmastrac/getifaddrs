@@ -23,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-getifaddrs = "0.2"
+getifaddrs = "0.4"
 ```
 
 ## Example
@@ -34,9 +34,17 @@ use getifaddrs::{getifaddrs, InterfaceFlags};
 fn main() -> std::io::Result<()> {
     for interface in getifaddrs()? {
         println!("Interface: {}", interface.name);
-        println!("  Address: {}", interface.address);
-        if let Some(netmask) = interface.netmask {
+        if let Some(ip_addr) = interface.address.ip_addr() {
+            println!("  IP Address: {}", ip_addr);
+        }
+        if let Some(mac_addr) = interface.address.mac_addr() {
+            println!("  MAC Address: {:?}", mac_addr);
+        }
+        if let Some(netmask) = interface.address.netmask() {
             println!("  Netmask: {}", netmask);
+        }
+        if let Some(associated_address) = interface.address.associated_address() {
+            println!("  Associated Address: {}", associated_address);
         }
         println!("  Flags: {:?}", interface.flags);
         if interface.flags.contains(InterfaceFlags::UP) {
