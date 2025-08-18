@@ -192,6 +192,7 @@ impl Address {
         }
     }
 
+    /// Returns the MAC address of the address, if this is a MAC address.
     pub fn mac_addr(&self) -> Option<[u8; 6]> {
         match self {
             Address::Mac(addr) => Some(*addr),
@@ -199,6 +200,7 @@ impl Address {
         }
     }
 
+    /// Returns the IP address of the address, if this is an IPv4 or IPv6 address.
     pub fn ip_addr(&self) -> Option<IpAddr> {
         match self {
             Address::V4(addr) => Some(IpAddr::V4(addr.address)),
@@ -207,6 +209,7 @@ impl Address {
         }
     }
 
+    /// Returns the netmask of the address, if this is an IPv4 or IPv6 address.
     pub fn netmask(&self) -> Option<IpAddr> {
         match self {
             Address::V4(addr) => addr.netmask.map(IpAddr::V4),
@@ -215,6 +218,7 @@ impl Address {
         }
     }
 
+    /// Returns the associated address of the address, if this is an IPv4 or IPv6 address.
     pub fn associated_address(&self) -> Option<IpAddr> {
         match self {
             Address::V4(addr) => addr.associated_address.map(IpAddr::V4),
@@ -1065,7 +1069,7 @@ mod windows {
                     Some(addr)
                 } else if flags.contains(InterfaceFlags::BROADCAST) {
                     // For broadcast interfaces, calculate broadcast address from the subnet mask
-                    if let Some(netmask) = netmask {
+                    if let Some(IpAddr::V4(netmask)) = netmask {
                         let addr_u32 = u32::from(addr);
                         let netmask_u32 = u32::from(netmask);
                         let network_addr = addr_u32 & netmask_u32;
