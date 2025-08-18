@@ -735,7 +735,7 @@ mod windows {
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         if_indextoname, if_nametoindex, ConvertInterfaceLuidToIndex, ConvertLengthToIpv4Mask,
         GetAdaptersAddresses, GetNumberOfInterfaces, IF_TYPE_IEEE80211, IP_ADAPTER_ADDRESSES_LH,
-        IP_ADAPTER_UNICAST_ADDRESS_LH, MIB_IF_TYPE_LOOPBACK, MIB_IF_TYPE_PPP,
+        IP_ADAPTER_UNICAST_ADDRESS_LH, MIB_IF_TYPE_ETHERNET, MIB_IF_TYPE_LOOPBACK, MIB_IF_TYPE_PPP,
     };
     use windows_sys::Win32::Networking::WinSock::{
         AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6,
@@ -1060,16 +1060,12 @@ mod windows {
             IpAddr::V4(addr) => {
                 // Calculate associated address (broadcast for broadcast interfaces)
                 let associated_address = if flags.contains(InterfaceFlags::LOOPBACK) {
-                    if let IpAddr::V4(addr) = addr {
-                        // For loopback interfaces, we can use the address itself, matching
-                        // both macOS and Linux behavior.
-                        Some(addr)
-                    } else {
-                        None
-                    }
+                    // For loopback interfaces, we can use the address itself, matching
+                    // both macOS and Linux behavior.
+                    Some(addr)
                 } else if flags.contains(InterfaceFlags::BROADCAST) {
                     // For broadcast interfaces, calculate broadcast address from the subnet mask
-                    if let Some(IpAddr::V4(netmask)) = netmask {
+                    if let Some(netmask) = netmask {
                         let addr_u32 = u32::from(addr);
                         let netmask_u32 = u32::from(netmask);
                         let network_addr = addr_u32 & netmask_u32;
