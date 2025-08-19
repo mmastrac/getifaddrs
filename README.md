@@ -81,7 +81,7 @@ let interfaces = getifaddrs().unwrap().collect::<Interfaces>();
 for (index, interface) in interfaces {
     println!("{}", interface.name);
     println!("  Flags: {:?}", interface.flags);
-    for address in &interface.address {
+    for address in interface.address.iter().flatten() {
         match address {
             Address::V4(..) | Address::V6(..) => {
                 println!("  IP{:?}: {:?}", address.family(), address.ip_addr().unwrap());

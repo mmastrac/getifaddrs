@@ -1,9 +1,7 @@
 #![doc=include_str!("../README.md")]
 
-use std::{
-    collections::BTreeMap,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-};
+use std::collections::BTreeMap;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use bitflags::bitflags;
 
@@ -93,13 +91,18 @@ impl FromIterator<Interface> for Interfaces {
 /// A collection of addresses, keyed by [`AddressFamily`].
 #[derive(Default, Debug)]
 pub struct Addresses {
-    addresses: BTreeMap<AddressFamily, Address>,
+    addresses: BTreeMap<AddressFamily, Vec<Address>>,
 }
 
 impl Addresses {
-    /// Returns the address associated with the given address family.
+    /// Returns the first address associated with the given address family.
     pub fn get(&self, family: AddressFamily) -> Option<&Address> {
-        self.addresses.get(&family)
+        self.addresses.get(&family).map(|addresses| &addresses[0])
+    }
+
+    /// Returns the addresses associated with the given address family.
+    pub fn get_all(&self, family: AddressFamily) -> Option<&[Address]> {
+        self.addresses.get(&family).map(|v| &**v)
     }
 
     /// Returns `true` if the collection contains an address of the given
@@ -123,26 +126,35 @@ impl Addresses {
         IntoIterator::into_iter(self)
     }
 
+    /// Inserts an address into the collection in sorted order.
     fn insert(&mut self, family: AddressFamily, address: Address) {
-        self.addresses.insert(family, address);
+        let entry = self.addresses.entry(family).or_insert_with(Vec::new);
+        match entry.binary_search(&address) {
+            Ok(_) => {
+                // Address already exists, don't insert duplicate
+            }
+            Err(pos) => {
+                entry.insert(pos, address);
+            }
+        }
     }
 }
 
 /// An iterator over the addresses in a [`Addresses`] collection.
 pub struct AddressesIter<'a> {
-    iter: std::collections::btree_map::Values<'a, AddressFamily, Address>,
+    iter: std::collections::btree_map::Values<'a, AddressFamily, Vec<Address>>,
 }
 
 impl<'a> Iterator for AddressesIter<'a> {
-    type Item = &'a Address;
+    type Item = &'a [Address];
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+        self.iter.next().map(|v| &**v)
     }
 }
 
 impl<'a> IntoIterator for &'a Addresses {
-    type Item = &'a Address;
+    type Item = &'a [Address];
     type IntoIter = AddressesIter<'a>;
     fn into_iter(self) -> Self::IntoIter {
         AddressesIter {
