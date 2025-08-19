@@ -128,7 +128,7 @@ impl Addresses {
 
     /// Inserts an address into the collection in sorted order.
     fn insert(&mut self, family: AddressFamily, address: Address) {
-        let entry = self.addresses.entry(family).or_insert_with(Vec::new);
+        let entry = self.addresses.entry(family).or_default();
         match entry.binary_search(&address) {
             Ok(_) => {
                 // Address already exists, don't insert duplicate
