@@ -7,6 +7,12 @@ use std::{
 
 use bitflags::bitflags;
 
+#[cfg(unix)]
+mod unix;
+
+#[cfg(windows)]
+mod windows;
+
 /// This represents the index of a network interface.
 pub type InterfaceIndex = u32;
 
@@ -419,12 +425,6 @@ impl InterfaceFilter {
         Ok(self.get()?.collect())
     }
 }
-
-#[cfg(unix)]
-mod unix;
-
-#[cfg(windows)]
-mod windows;
 
 /// Returns an iterator for all network interfaces on the system.
 ///
