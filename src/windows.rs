@@ -50,7 +50,11 @@ impl InterfaceIterator {
         let current = adapters.buf.ptr;
         Ok(InterfaceIterator {
             adapters,
-            state: Some(InterfaceIteratorState::Mac(current)),
+            state: if current.is_null() {
+                None
+            } else {
+                Some(InterfaceIteratorState::Mac(current))
+            },
             filter,
         })
     }
