@@ -18,12 +18,19 @@ use windows_sys::Win32::Networking::WinSock::{
 // Larger than necessary
 const IF_NAMESIZE: usize = 1024;
 
+#[derive(Clone, Copy)]
+enum InterfaceIteratorState {
+    Mac(*const IP_ADAPTER_ADDRESSES_LH),
+    Address(
+        *const IP_ADAPTER_ADDRESSES_LH,
+        *const IP_ADAPTER_UNICAST_ADDRESS_LH,
+    ),
+}
+
 pub struct InterfaceIterator {
     #[allow(unused)]
     adapters: AdaptersAddresses,
-    yielded_mac: bool,
-    current: *const IP_ADAPTER_ADDRESSES_LH,
-    current_unicast: *const IP_ADAPTER_UNICAST_ADDRESS_LH,
+    state: Option<InterfaceIteratorState>,
     filter: InterfaceFilter,
 }
 
@@ -41,45 +48,39 @@ impl InterfaceIterator {
         };
         let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
         let current = adapters.buf.ptr;
-        let current_unicast = unsafe { (*current).FirstUnicastAddress };
         Ok(InterfaceIterator {
             adapters,
-            yielded_mac: false,
-            current,
-            current_unicast,
+            state: Some(InterfaceIteratorState::Mac(current)),
             filter,
         })
     }
 
     /// Advance to the next record.
-    fn advance(
-        &mut self,
-    ) -> Option<(
-        *const IP_ADAPTER_ADDRESSES_LH,
-        *const IP_ADAPTER_UNICAST_ADDRESS_LH,
-    )> {
+    fn advance(&mut self) -> Option<InterfaceIteratorState> {
         // Wedge this iterator at the end
-        if self.current.is_null() {
+        let Some(state) = self.state else {
             return None;
-        }
-        loop {
-            if self.current_unicast.is_null() {
-                self.yielded_mac = false;
-                self.current = unsafe { (*self.current).Next };
-                if self.current.is_null() {
-                    return None;
-                }
-                self.current_unicast = unsafe { (*self.current).FirstUnicastAddress };
+        };
+        let next = state;
+        let (current, current_unicast) = match next {
+            InterfaceIteratorState::Mac(current) => {
+                (current, unsafe { (*current).FirstUnicastAddress })
+            }
+            InterfaceIteratorState::Address(current, current_unicast) => {
+                (current, unsafe { (*current_unicast).Next })
+            }
+        };
+        if current_unicast.is_null() {
+            let next = unsafe { (*current).Next };
+            self.state = if next.is_null() {
+                None
             } else {
-                self.current_unicast = unsafe { (*self.current_unicast).Next };
-            }
-
-            if self.current_unicast.is_null() {
-                continue;
-            }
-
-            return Some((self.current, self.current_unicast));
+                Some(InterfaceIteratorState::Mac(next))
+            };
+        } else {
+            self.state = Some(InterfaceIteratorState::Address(current, current_unicast));
         }
+        Some(next)
     }
 }
 
@@ -88,19 +89,54 @@ impl Iterator for InterfaceIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            // Yield the mac address first for any adapter
-            if !self.yielded_mac && !self.current.is_null() {
-                self.yielded_mac = true;
+            match self.advance()? {
+                InterfaceIteratorState::Mac(adapter) => {
+                    if self.filter.family_filter(AddressFamily::Mac) {
+                        let adapter = unsafe { &*adapter };
+                        if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
+                            if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
+                                continue;
+                            }
+                        }
 
-                if self.filter.family_filter(AddressFamily::Mac) {
-                    let adapter = unsafe { &*self.current };
+                        if let Ok(Some(interface)) = convert_to_interface_mac(adapter) {
+                            if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria
+                            {
+                                if name != &interface.name {
+                                    continue;
+                                }
+                            }
+                            if let Some(InterfaceFilterCriteria::Index(index)) =
+                                &self.filter.criteria
+                            {
+                                if Some(*index) != interface.index {
+                                    continue;
+                                }
+                            }
+
+                            return Some(interface);
+                        }
+                    }
+                }
+                InterfaceIteratorState::Address(current, current_unicast) => {
+                    let sa_family = unsafe { (*(*current_unicast).Address.lpSockaddr).sa_family };
+                    if sa_family == AF_INET && !self.filter.family_filter(AddressFamily::V4) {
+                        continue;
+                    }
+                    if sa_family == AF_INET6 && !self.filter.family_filter(AddressFamily::V6) {
+                        continue;
+                    }
+
+                    let adapter = unsafe { &*current };
+                    let unicast_addr = unsafe { &*current_unicast };
+
                     if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
                         if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
                             continue;
                         }
                     }
 
-                    if let Ok(Some(interface)) = convert_to_interface_mac(adapter) {
+                    if let Ok(interface) = convert_to_interface(adapter, unicast_addr) {
                         if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
                             if name != &interface.name {
                                 continue;
@@ -115,40 +151,6 @@ impl Iterator for InterfaceIterator {
                         return Some(interface);
                     }
                 }
-            }
-
-            let (current, current_unicast) = self.advance()?;
-
-            let sa_family = unsafe { (*(*current_unicast).Address.lpSockaddr).sa_family };
-            if sa_family == AF_INET && !self.filter.family_filter(AddressFamily::V4) {
-                continue;
-            }
-            if sa_family == AF_INET6 && !self.filter.family_filter(AddressFamily::V6) {
-                continue;
-            }
-
-            let adapter = unsafe { &*current };
-            let unicast_addr = unsafe { &*current_unicast };
-
-            if let Some(InterfaceFilterCriteria::Loopback) = &self.filter.criteria {
-                if adapter.IfType != MIB_IF_TYPE_LOOPBACK {
-                    continue;
-                }
-            }
-
-            if let Ok(interface) = convert_to_interface(adapter, unicast_addr) {
-                if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
-                    if name != &interface.name {
-                        continue;
-                    }
-                }
-                if let Some(InterfaceFilterCriteria::Index(index)) = &self.filter.criteria {
-                    if Some(*index) != interface.index {
-                        continue;
-                    }
-                }
-
-                return Some(interface);
             }
         }
     }
@@ -236,7 +238,9 @@ impl AdaptersAddresses {
                     &mut out_buf_len,
                 )
             } {
-                NO_ERROR => return Ok(adapter_addresses),
+                NO_ERROR => {
+                    return Ok(adapter_addresses);
+                }
                 ERROR_BUFFER_OVERFLOW | ERROR_NOT_ENOUGH_MEMORY => {
                     if out_buf_len == MAX_MEMORY_SIZE {
                         return Err(io::Error::new(
@@ -517,6 +521,7 @@ impl From<Flags> for u32 {
         flags.0
     }
 }
+
 pub fn _if_indextoname(index: InterfaceIndex) -> io::Result<String> {
     let mut buffer = vec![0u8; IF_NAMESIZE]; // Allocate buffer for narrow string
     let result = unsafe { if_indextoname(index as _, buffer.as_mut_ptr()) };
