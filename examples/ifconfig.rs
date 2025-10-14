@@ -5,6 +5,8 @@ fn main() {
     for (index, interface) in interfaces {
         println!("{}", interface.name);
         println!("  Flags: {:?}", interface.flags);
+        #[cfg(windows)]
+        println!("  Description: {:?}", interface.description);
         for address in interface.address.iter().flatten() {
             match address {
                 Address::V4(..) | Address::V6(..) => {

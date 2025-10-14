@@ -62,14 +62,12 @@ impl InterfaceIterator {
         if self.current.is_null() {
             return None;
         }
-        let current = self.current;
-        let current_unicast = self.current_unicast;
         loop {
             if self.current_unicast.is_null() {
                 self.yielded_mac = false;
                 self.current = unsafe { (*self.current).Next };
                 if self.current.is_null() {
-                    return Some((current, current_unicast));
+                    return None;
                 }
                 self.current_unicast = unsafe { (*self.current).FirstUnicastAddress };
             } else {
@@ -80,7 +78,7 @@ impl InterfaceIterator {
                 continue;
             }
 
-            return Some((current, current_unicast));
+            return Some((self.current, self.current_unicast));
         }
     }
 }
