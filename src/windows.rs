@@ -62,9 +62,7 @@ impl InterfaceIterator {
     /// Advance to the next record.
     fn advance(&mut self) -> Option<InterfaceIteratorState> {
         // Wedge this iterator at the end
-        let Some(state) = self.state else {
-            return None;
-        };
+        let state = self.state?;
         let next = state;
         let (current, current_unicast) = match next {
             InterfaceIteratorState::Mac(current) => {
