@@ -54,8 +54,10 @@ pub struct Interface<A: sealed::Addressable = Address> {
     pub index: Option<InterfaceIndex>,
 }
 
-/// A map of interface index to interface addresses. Note that this assumes each
-/// interface has at most one address of each family.
+/// A map of interface index to interface addresses.
+///
+/// Each interface may contain multiple addresses for a given family. Use
+/// [`Addresses::get_all`] or iterate the [`Addresses`] value to access them all.
 ///
 /// ```
 /// # use getifaddrs::{getifaddrs, Interface, Interfaces};
@@ -431,8 +433,9 @@ impl InterfaceFilter {
     ///
     /// This will only collect interfaces that contain an non-empty index.
     ///
-    /// If multiple addresses are associated with an interface and address
-    /// family, this will return the first one.
+    /// [`Addresses::get`] returns the first address for a family. Use
+    /// [`Addresses::get_all`] or iterate the [`Addresses`] value to access all
+    /// collected addresses for that family.
     pub fn collect(self) -> std::io::Result<Interfaces> {
         Ok(self.get()?.collect())
     }
