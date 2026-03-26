@@ -118,7 +118,8 @@ impl Addresses {
         self.addresses.is_empty()
     }
 
-    /// Returns the number of addresses in the collection.
+    /// Returns the number of address families represented in the collection.
+    /// To count total individual addresses, iterate and sum the slice lengths.
     pub fn len(&self) -> usize {
         self.addresses.len()
     }
