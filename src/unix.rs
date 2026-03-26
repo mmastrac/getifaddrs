@@ -62,7 +62,7 @@ impl Iterator for InterfaceIterator {
 
             if let Some(InterfaceFilterCriteria::Name(name)) = &self.filter.criteria {
                 let ifname = unsafe { CStr::from_ptr(ifaddr.ifa_name) };
-                if !name.as_bytes().eq(ifname.to_bytes()) {
+                if name.as_bytes() != ifname.to_bytes() {
                     continue;
                 }
             }
@@ -210,12 +210,9 @@ impl Iterator for InterfaceIterator {
                             let mac_offset = (*sdl).sdl_nlen as usize;
                             let mac_len = (*sdl).sdl_alen as usize;
                             if mac_len == 6 {
-                                let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset);
+                                let mac_ptr = (*sdl).sdl_data.as_ptr().add(mac_offset) as *const u8;
                                 let mut mac = [0u8; 6];
-                                #[allow(clippy::needless_range_loop)]
-                                for i in 0..6 {
-                                    mac[i] = *mac_ptr.add(i) as u8;
-                                }
+                                std::ptr::copy_nonoverlapping(mac_ptr, mac.as_mut_ptr(), 6);
                                 Some(mac)
                             } else {
                                 None
