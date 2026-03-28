@@ -2,9 +2,11 @@ use super::{
     Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
     InterfaceIndex, NetworkAddress,
 };
-use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
-use windows_sys::Win32::Foundation::{
-    ERROR_BUFFER_OVERFLOW, ERROR_NOT_ENOUGH_MEMORY, ERROR_NO_DATA, NO_ERROR,
+use std::{
+    ffi::OsString,
+    io,
+    net::{IpAddr, Ipv6Addr},
+    os::windows::prelude::OsStringExt,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     if_indextoname, if_nametoindex, ConvertInterfaceLuidToIndex, ConvertLengthToIpv4Mask,
@@ -16,6 +18,10 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows_sys::Win32::Networking::WinSock::{
     ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6,
+};
+use windows_sys::Win32::{
+    Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_NOT_ENOUGH_MEMORY, ERROR_NO_DATA, NO_ERROR},
+    NetworkManagement::Ndis::NET_LUID_LH,
 };
 
 // Larger than necessary
@@ -268,6 +274,43 @@ impl AdaptersAddresses {
     }
 }
 
+/// Converts an adapter LUID to a (name, index) pair.
+///
+/// Tries LUID → index → name. Falls back to a hex LUID string when the OS
+/// calls fail, so callers always receive a usable name.
+fn luid_to_name_and_index(luid: NET_LUID_LH) -> (String, Option<u32>) {
+    let mut if_index: u32 = 0;
+    let result = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut if_index) };
+    let luid_value = unsafe { luid.Value };
+    if result == NO_ERROR {
+        let mut buffer = [0u8; IF_NAMESIZE];
+        let ptr = unsafe { if_indextoname(if_index, buffer.as_mut_ptr()) };
+        if !ptr.is_null() {
+            let name = unsafe { std::ffi::CStr::from_ptr(ptr as *const i8) }
+                .to_string_lossy()
+                .into_owned();
+            (name, Some(if_index))
+        } else {
+            (format!("if{:#x}", luid_value), Some(if_index))
+        }
+    } else {
+        (format!("if{:#x}", luid_value), None)
+    }
+}
+
+/// Converts an IPv6 prefix length (0–128) to the corresponding netmask.
+fn prefix_length_to_ipv6_mask(prefix_len: u8) -> Ipv6Addr {
+    let prefix_len = prefix_len.min(128) as usize;
+    let mut bytes = [0u8; 16];
+    let full_bytes = prefix_len / 8;
+    let remainder = prefix_len % 8;
+    bytes[..full_bytes].fill(0xff);
+    if remainder > 0 {
+        bytes[full_bytes] = 0xffu8 << (8 - remainder);
+    }
+    Ipv6Addr::from(bytes)
+}
+
 fn convert_to_flags(adapter: &IP_ADAPTER_ADDRESSES_LH) -> InterfaceFlags {
     // Unsure if this is the right mapping here
     let mut flags = InterfaceFlags::empty();
@@ -319,12 +362,9 @@ fn convert_to_interface(
             }
             Some(IpAddr::V4(std::net::Ipv4Addr::from(mask.to_be())))
         }
-        IpAddr::V6(_) => {
-            // For IPv6, we can use the prefix length directly
-            Some(IpAddr::V6(std::net::Ipv6Addr::new(
-                0xffff, 0xffff, 0xffff, 0xffff, 0, 0, 0, 0,
-            )))
-        }
+        IpAddr::V6(_) => Some(IpAddr::V6(prefix_length_to_ipv6_mask(
+            unicast_addr.OnLinkPrefixLength,
+        ))),
     };
 
     let address = match ip_addr {
@@ -359,12 +399,8 @@ fn convert_to_interface(
             })
         }
         IpAddr::V6(addr) => {
-            let associated_address = if flags.contains(InterfaceFlags::BROADCAST) {
-                // TODO: We can likely hunt for this in the prefixes
-                None
-            } else {
-                None
-            };
+            // TODO: We can likely hunt for this in the prefixes
+            let associated_address = None;
 
             Address::V6(NetworkAddress {
                 address: addr,
@@ -377,26 +413,7 @@ fn convert_to_interface(
         }
     };
 
-    // Get the LUID and convert it to an index
-    let luid = adapter.Luid;
-    let mut if_index: u32 = 0;
-    let result = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut if_index) };
-    let luid = unsafe { adapter.Luid.Value };
-    let (name, index) = if result == NO_ERROR {
-        // Call if_indextoname with the converted index
-        let mut buffer = [0u8; IF_NAMESIZE];
-        let result = unsafe { if_indextoname(if_index, buffer.as_mut_ptr()) };
-        if !result.is_null() {
-            let name = unsafe { std::ffi::CStr::from_ptr(result as *const i8) }
-                .to_string_lossy()
-                .into_owned();
-            (name, Some(if_index))
-        } else {
-            (format!("if{:#x}", luid), Some(if_index))
-        }
-    } else {
-        (format!("if{:#x}", luid), None)
-    };
+    let (name, index) = luid_to_name_and_index(adapter.Luid);
 
     Ok(Interface {
         name,
@@ -427,26 +444,7 @@ fn convert_to_interface_mac(adapter: &IP_ADAPTER_ADDRESSES_LH) -> io::Result<Opt
 
     let flags = convert_to_flags(adapter);
 
-    // Get the LUID and convert it to an index
-    let luid = adapter.Luid;
-    let mut if_index: u32 = 0;
-    let result = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut if_index) };
-    let luid = unsafe { adapter.Luid.Value };
-    let (name, index) = if result == NO_ERROR {
-        // Call if_indextoname with the converted index
-        let mut buffer = [0u8; IF_NAMESIZE];
-        let result = unsafe { if_indextoname(if_index, buffer.as_mut_ptr()) };
-        if !result.is_null() {
-            let name = unsafe { std::ffi::CStr::from_ptr(result as *const i8) }
-                .to_string_lossy()
-                .into_owned();
-            (name, Some(if_index))
-        } else {
-            (format!("if{:#x}", luid), Some(if_index))
-        }
-    } else {
-        (format!("if{:#x}", luid), None)
-    };
+    let (name, index) = luid_to_name_and_index(adapter.Luid);
 
     Ok(Some(Interface {
         name,
