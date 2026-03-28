@@ -8,11 +8,14 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     if_indextoname, if_nametoindex, ConvertInterfaceLuidToIndex, ConvertLengthToIpv4Mask,
-    GetAdaptersAddresses, GetNumberOfInterfaces, IF_TYPE_IEEE80211, IP_ADAPTER_ADDRESSES_LH,
-    IP_ADAPTER_UNICAST_ADDRESS_LH, MIB_IF_TYPE_ETHERNET, MIB_IF_TYPE_LOOPBACK, MIB_IF_TYPE_PPP,
+    GetAdaptersAddresses, GetNumberOfInterfaces, GET_ADAPTERS_ADDRESSES_FLAGS, IF_TYPE_IEEE80211,
+    IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_IPV4_ENABLED, IP_ADAPTER_IPV6_ENABLED,
+    IP_ADAPTER_NO_MULTICAST, IP_ADAPTER_RECEIVE_ONLY, IP_ADAPTER_UNICAST_ADDRESS_LH,
+    MIB_IF_TYPE_ETHERNET, MIB_IF_TYPE_LOOPBACK, MIB_IF_TYPE_PPP,
 };
+use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows_sys::Win32::Networking::WinSock::{
-    AF_INET, AF_INET6, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6,
+    ADDRESS_FAMILY, AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6,
 };
 
 // Larger than necessary
@@ -42,11 +45,11 @@ impl InterfaceIterator {
             filter.family_filter(AddressFamily::V6),
             filter.family_filter(AddressFamily::Mac),
         ) {
-            (true, false, false) => Family::V4,
-            (false, true, false) => Family::V6,
-            _ => Family::UNSPEC,
+            (true, false, false) => AF_INET,
+            (false, true, false) => AF_INET6,
+            _ => AF_UNSPEC,
         };
-        let adapters = AdaptersAddresses::try_new(family, Flags::default())?;
+        let adapters = AdaptersAddresses::try_new(family, GET_ADAPTERS_ADDRESSES_FLAGS::default())?;
         let current = adapters.buf.ptr;
         Ok(InterfaceIterator {
             adapters,
@@ -201,7 +204,7 @@ impl Drop for AdapterAddressBuf {
 }
 
 impl AdaptersAddresses {
-    fn try_new(family: Family, flags: Flags) -> io::Result<Self> {
+    fn try_new(family: ADDRESS_FAMILY, flags: GET_ADAPTERS_ADDRESSES_FLAGS) -> io::Result<Self> {
         let mut num_interfaces = 0u32;
         unsafe {
             if GetNumberOfInterfaces(&mut num_interfaces) != NO_ERROR {
@@ -233,8 +236,8 @@ impl AdaptersAddresses {
 
             match unsafe {
                 GetAdaptersAddresses(
-                    family.into(),
-                    flags.into(),
+                    family as u32,
+                    flags,
                     std::ptr::null_mut(),
                     adapter_addresses.buf.ptr,
                     &mut out_buf_len,
@@ -269,8 +272,7 @@ fn convert_to_flags(adapter: &IP_ADAPTER_ADDRESSES_LH) -> InterfaceFlags {
     // Unsure if this is the right mapping here
     let mut flags = InterfaceFlags::empty();
     let raw_flags = unsafe { adapter.Anonymous2.Flags };
-    if adapter.OperStatus == 1 {
-        // IfOperStatusUp
+    if adapter.OperStatus == IfOperStatusUp {
         flags |= InterfaceFlags::UP | InterfaceFlags::RUNNING;
     }
     if adapter.IfType == MIB_IF_TYPE_LOOPBACK {
@@ -282,20 +284,16 @@ fn convert_to_flags(adapter: &IP_ADAPTER_ADDRESSES_LH) -> InterfaceFlags {
     if adapter.IfType == MIB_IF_TYPE_PPP {
         flags |= InterfaceFlags::POINTTOPOINT;
     }
-    if raw_flags & (1 << 4) != 0 {
-        // !NoMulticast
+    if raw_flags & IP_ADAPTER_NO_MULTICAST != 0 {
         flags &= !InterfaceFlags::MULTICAST;
     }
-    if raw_flags & (1 << 7) != 0 {
-        // Ipv4Enabled
+    if raw_flags & IP_ADAPTER_IPV4_ENABLED != 0 {
         flags |= InterfaceFlags::UP;
     }
-    if raw_flags & (1 << 8) != 0 {
-        // Ipv6Enabled
+    if raw_flags & IP_ADAPTER_IPV6_ENABLED != 0 {
         flags |= InterfaceFlags::UP;
     }
-    if raw_flags & (1 << 3) != 0 {
-        // ReceiveOnly
+    if raw_flags & IP_ADAPTER_RECEIVE_ONLY != 0 {
         flags &= !InterfaceFlags::RUNNING;
     }
     flags
@@ -491,36 +489,6 @@ fn to_os_string(p: *mut u16) -> OsString {
             i += 1;
         }
         OsString::from_wide(unsafe { std::slice::from_raw_parts(p, i) })
-    }
-}
-
-#[derive(Copy, Clone)]
-struct Family(u32);
-
-impl Family {
-    const UNSPEC: Self = Self(0);
-    const V4: Self = Self(2);
-    const V6: Self = Self(23);
-}
-
-impl From<Family> for u32 {
-    fn from(family: Family) -> Self {
-        family.0
-    }
-}
-
-#[derive(Copy, Clone)]
-struct Flags(u32);
-
-impl Flags {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
-impl From<Flags> for u32 {
-    fn from(flags: Flags) -> Self {
-        flags.0
     }
 }
 
