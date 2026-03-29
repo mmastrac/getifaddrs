@@ -515,3 +515,47 @@ pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<InterfaceIndex> {
         Ok(result as _)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_prefix_length_to_ipv6_mask() {
+        let cases: &[(u8, &str)] = &[
+            (0, "::"),
+            // Partial first byte
+            (1, "8000::"),
+            (2, "c000::"),
+            (3, "e000::"),
+            (4, "f000::"),
+            (5, "f800::"),
+            (6, "fc00::"),
+            (7, "fe00::"),
+            // Byte-aligned cases
+            (8, "ff00::"),
+            (16, "ffff::"),
+            (48, "ffff:ffff:ffff::"),
+            (64, "ffff:ffff:ffff:ffff::"),
+            (96, "ffff:ffff:ffff:ffff:ffff:ffff::"),
+            // Crossing a byte boundary
+            (9, "ff80::"),
+            (10, "ffc0::"),
+            (15, "fffe::"),
+            // Values near the end
+            (127, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe"),
+            (128, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+            // Values above 128 are clamped
+            (200, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+            (255, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+        ];
+
+        for &(prefix, expected) in cases {
+            assert_eq!(
+                prefix_length_to_ipv6_mask(prefix),
+                expected.parse::<Ipv6Addr>().unwrap(),
+                "prefix_length_to_ipv6_mask({prefix}) should be {expected}"
+            );
+        }
+    }
+}
