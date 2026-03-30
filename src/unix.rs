@@ -236,6 +236,7 @@ impl Iterator for InterfaceIterator {
                 address,
                 flags,
                 index,
+                _unconstructable: std::marker::PhantomData,
             });
         }
         None
