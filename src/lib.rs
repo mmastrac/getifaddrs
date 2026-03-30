@@ -61,6 +61,8 @@ impl<A: sealed::Addressable> Interface<A> {
     pub fn new(name: impl Into<String>, address: A) -> Self {
         Self {
             name: name.into(),
+            #[cfg(windows)]
+            description: String::new(),
             address,
             flags: InterfaceFlags::empty(),
             index: None,
