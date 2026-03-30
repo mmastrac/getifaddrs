@@ -290,6 +290,18 @@ pub enum AddressFamily {
     Mac,
 }
 
+/// IPv6 CIDR netmask: the first `prefix_len` bits are one, the rest zero (`Ipv6Addr::from(u128)` is IETF / big-endian).
+///
+/// Prefix lengths above `128` are clamped (matches Windows on-link prefix APIs).
+fn ipv6_netmask_from_prefix_len(prefix_len: u8) -> Ipv6Addr {
+    let prefix_len = prefix_len.min(128);
+    let mask = match prefix_len {
+        0 => 0u128,
+        p => u128::MAX << (128 - u32::from(p)),
+    };
+    Ipv6Addr::from(mask)
+}
+
 /// Represents a network address of a given type.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Address {
@@ -389,18 +401,9 @@ impl Address {
 
     pub fn v6(address: Ipv6Addr, prefix: u8) -> Self {
         assert!(prefix <= 128);
-        let mut raw_ipv6 = [0; 16];
-        // Fill the left-most whole `prefix` bits with 0xff
-        for i in 0..(prefix / 8) {
-            raw_ipv6[i as usize] = u8::MAX;
-        }
-        // Fill the top remaining bits
-        if prefix % 8 != 0 {
-            raw_ipv6[(prefix / 8) as usize + 1] = (1 << (8 - (prefix % 8))) - 1;
-        }
         Address::V6(NetworkAddress {
             address,
-            netmask: Some(Ipv6Addr::from(raw_ipv6)),
+            netmask: Some(ipv6_netmask_from_prefix_len(prefix)),
             associated_address: None,
         })
     }
@@ -1183,5 +1186,40 @@ mod tests {
 
         let addresses: Addresses = interfaces.into_values().collect();
         assert_eq!(addresses.len(), 2);
+    }
+
+    #[test]
+    fn ipv6_netmask_from_prefix_len_known_values() {
+        let cases: &[(u8, &str)] = &[
+            (0, "::"),
+            (1, "8000::"),
+            (2, "c000::"),
+            (3, "e000::"),
+            (4, "f000::"),
+            (5, "f800::"),
+            (6, "fc00::"),
+            (7, "fe00::"),
+            (8, "ff00::"),
+            (9, "ff80::"),
+            (10, "ffc0::"),
+            (15, "fffe::"),
+            (16, "ffff::"),
+            (48, "ffff:ffff:ffff::"),
+            (64, "ffff:ffff:ffff:ffff::"),
+            (65, "ffff:ffff:ffff:ffff:8000::"),
+            (96, "ffff:ffff:ffff:ffff:ffff:ffff::"),
+            (127, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe"),
+            (128, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+            (200, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+            (255, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+        ];
+
+        for &(prefix, expected) in cases {
+            assert_eq!(
+                ipv6_netmask_from_prefix_len(prefix),
+                expected.parse::<Ipv6Addr>().unwrap(),
+                "ipv6_netmask_from_prefix_len({prefix}) should be {expected}"
+            );
+        }
     }
 }
