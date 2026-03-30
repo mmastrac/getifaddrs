@@ -52,6 +52,31 @@ pub struct Interface<A: sealed::Addressable = Address> {
     pub flags: InterfaceFlags,
     /// The index of the interface, if available.
     pub index: Option<InterfaceIndex>,
+
+    _unconstructable: std::marker::PhantomData<A>,
+}
+
+impl<A: sealed::Addressable> Interface<A> {
+    #[cfg(test)]
+    pub fn new(name: impl Into<String>, address: A) -> Self {
+        Self {
+            name: name.into(),
+            #[cfg(windows)]
+            description: String::new(),
+            address,
+            flags: InterfaceFlags::empty(),
+            index: None,
+            _unconstructable: std::marker::PhantomData,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_index(self, index: InterfaceIndex) -> Self {
+        Self {
+            index: Some(index),
+            ..self
+        }
+    }
 }
 
 /// A map of interface index to interface addresses.
@@ -66,24 +91,31 @@ pub struct Interface<A: sealed::Addressable = Address> {
 /// # Ok(())
 /// # }
 /// ```
-pub type Interfaces = BTreeMap<InterfaceIndex, Interface<Addresses>>;
+#[allow(type_alias_bounds)]
+pub type Interfaces<A: sealed::Addressable = Addresses<Address>> =
+    BTreeMap<InterfaceIndex, Interface<A>>;
 
-impl FromIterator<Interface> for Interfaces {
-    fn from_iter<T: IntoIterator<Item = Interface>>(iter: T) -> Self {
+impl<A: sealed::Addressable> FromIterator<Interface<A>> for Interfaces<Addresses<A::Address>> {
+    fn from_iter<T: IntoIterator<Item = Interface<A>>>(iter: T) -> Self {
         let mut map = BTreeMap::new();
         for interface in iter {
             if let Some(index) = interface.index {
-                map.entry(index)
+                let addresses = &mut map
+                    .entry(index)
                     .or_insert_with(|| Interface {
                         name: interface.name,
                         #[cfg(windows)]
                         description: interface.description,
-                        address: Addresses::default(),
+                        address: Addresses::new(),
                         flags: interface.flags,
                         index: Some(index),
+                        _unconstructable: std::marker::PhantomData,
                     })
-                    .address
-                    .insert(interface.address.family(), interface.address);
+                    .address;
+
+                for (family, address) in A::iter(interface.address) {
+                    addresses.insert(family, address);
+                }
             }
         }
         map
@@ -92,18 +124,24 @@ impl FromIterator<Interface> for Interfaces {
 
 /// A collection of addresses, keyed by [`AddressFamily`].
 #[derive(Default, Debug)]
-pub struct Addresses {
-    addresses: BTreeMap<AddressFamily, Vec<Address>>,
+pub struct Addresses<A: sealed::SingleAddressable = Address> {
+    addresses: BTreeMap<AddressFamily, Vec<A>>,
 }
 
-impl Addresses {
+impl<A: sealed::SingleAddressable> Addresses<A> {
+    pub const fn new() -> Self {
+        Self {
+            addresses: BTreeMap::new(),
+        }
+    }
+
     /// Returns the first address associated with the given address family.
-    pub fn get(&self, family: AddressFamily) -> Option<&Address> {
+    pub fn get(&self, family: AddressFamily) -> Option<&A> {
         self.addresses.get(&family).map(|addresses| &addresses[0])
     }
 
     /// Returns the addresses associated with the given address family.
-    pub fn get_all(&self, family: AddressFamily) -> Option<&[Address]> {
+    pub fn get_all(&self, family: AddressFamily) -> Option<&[A]> {
         self.addresses.get(&family).map(|v| &**v)
     }
 
@@ -115,22 +153,27 @@ impl Addresses {
 
     /// Returns `true` if the collection is empty.
     pub fn is_empty(&self) -> bool {
-        self.addresses.is_empty()
+        self.addresses.is_empty() || self.len() == 0
     }
 
     /// Returns the number of address families represented in the collection.
     /// To count total individual addresses, iterate and sum the slice lengths.
     pub fn len(&self) -> usize {
-        self.addresses.len()
+        self.addresses
+            .values()
+            .map(|addresses| addresses.len())
+            .sum()
     }
 
     /// Returns an iterator over the addresses in the collection.
-    pub fn iter(&self) -> AddressesIter<'_> {
-        IntoIterator::into_iter(self)
+    pub fn iter(&self) -> AddressesIter<'_, A> {
+        AddressesIter {
+            iter: self.addresses.values(),
+        }
     }
 
     /// Inserts an address into the collection in sorted order.
-    fn insert(&mut self, family: AddressFamily, address: Address) {
+    fn insert(&mut self, family: AddressFamily, address: A) {
         let entry = self.addresses.entry(family).or_default();
         match entry.binary_search(&address) {
             Ok(_) => {
@@ -143,9 +186,33 @@ impl Addresses {
     }
 }
 
+impl<A: sealed::Addressable> FromIterator<A> for Addresses<A::Address> {
+    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self {
+        let mut map: BTreeMap<AddressFamily, Vec<A::Address>> = BTreeMap::new();
+        for address in iter {
+            for (family, address) in A::iter(address) {
+                map.entry(family).or_default().push(address);
+            }
+        }
+        Addresses { addresses: map }
+    }
+}
+
+impl<X, A: sealed::Addressable> FromIterator<(X, A)> for Addresses<A::Address> {
+    fn from_iter<T: IntoIterator<Item = (X, A)>>(iter: T) -> Self {
+        let mut map: BTreeMap<AddressFamily, Vec<A::Address>> = BTreeMap::new();
+        for (_, address) in iter {
+            for (family, address) in A::iter(address) {
+                map.entry(family).or_default().push(address);
+            }
+        }
+        Addresses { addresses: map }
+    }
+}
+
 /// An iterator over the addresses in a [`Addresses`] collection.
-pub struct AddressesIter<'a> {
-    iter: std::collections::btree_map::Values<'a, AddressFamily, Vec<Address>>,
+pub struct AddressesIter<'a, A = Address> {
+    iter: std::collections::btree_map::Values<'a, AddressFamily, Vec<A>>,
 }
 
 impl<'a> Iterator for AddressesIter<'a> {
@@ -166,6 +233,54 @@ impl<'a> IntoIterator for &'a Addresses {
     }
 }
 
+impl FromIterator<Address> for Vec<IpAddr> {
+    fn from_iter<T: IntoIterator<Item = Address>>(iter: T) -> Self {
+        iter.into_iter()
+            .filter_map(|address| address.ip_addr())
+            .collect()
+    }
+}
+
+impl<'a> FromIterator<&'a Address> for Vec<IpAddr> {
+    fn from_iter<T: IntoIterator<Item = &'a Address>>(iter: T) -> Self {
+        iter.into_iter()
+            .filter_map(|address| address.ip_addr())
+            .collect()
+    }
+}
+
+impl FromIterator<Address> for Vec<Ipv4Addr> {
+    fn from_iter<T: IntoIterator<Item = Address>>(iter: T) -> Self {
+        iter.into_iter()
+            .filter_map(|address| address.ipv4_addr())
+            .collect()
+    }
+}
+
+impl<'a> FromIterator<&'a Address> for Vec<Ipv4Addr> {
+    fn from_iter<T: IntoIterator<Item = &'a Address>>(iter: T) -> Self {
+        iter.into_iter()
+            .filter_map(|address| address.ipv4_addr())
+            .collect()
+    }
+}
+
+impl FromIterator<Address> for Vec<Ipv6Addr> {
+    fn from_iter<T: IntoIterator<Item = Address>>(iter: T) -> Self {
+        iter.into_iter()
+            .filter_map(|address| address.ipv6_addr())
+            .collect()
+    }
+}
+
+impl<'a> FromIterator<&'a Address> for Vec<Ipv6Addr> {
+    fn from_iter<T: IntoIterator<Item = &'a Address>>(iter: T) -> Self {
+        iter.into_iter()
+            .filter_map(|address| address.ipv6_addr())
+            .collect()
+    }
+}
+
 /// Represents a network address family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AddressFamily {
@@ -177,8 +292,19 @@ pub enum AddressFamily {
     Mac,
 }
 
+/// IPv6 CIDR netmask: the first `prefix_len` bits are one, the rest zero
+/// (`Ipv6Addr::from(u128)` is IETF / big-endian).
+fn ipv6_netmask_from_prefix_len(prefix_len: u8) -> Ipv6Addr {
+    let prefix_len = prefix_len.min(128);
+    let mask = match prefix_len {
+        0 => 0u128,
+        p => u128::MAX << (128 - u32::from(p)),
+    };
+    Ipv6Addr::from(mask)
+}
+
 /// Represents a network address of a given type.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Address {
     /// An IPv4 address.
     V4(NetworkAddress<Ipv4Addr>),
@@ -230,6 +356,24 @@ impl Address {
         }
     }
 
+    /// Returns the IPv4 address of the address, if this is an IPv4 address.
+    pub fn ipv4_addr(&self) -> Option<Ipv4Addr> {
+        match self {
+            Address::V4(addr) => Some(addr.address),
+            Address::V6(_) => None,
+            Address::Mac(_) => None,
+        }
+    }
+
+    /// Returns the IPv6 address of the address, if this is an IPv6 address.
+    pub fn ipv6_addr(&self) -> Option<Ipv6Addr> {
+        match self {
+            Address::V6(addr) => Some(addr.address),
+            Address::V4(_) => None,
+            Address::Mac(_) => None,
+        }
+    }
+
     /// Returns the netmask of the address, if this is an IPv4 or IPv6 address.
     pub fn netmask(&self) -> Option<IpAddr> {
         match self {
@@ -247,6 +391,27 @@ impl Address {
             Address::Mac(_) => None,
         }
     }
+
+    pub fn v4(address: Ipv4Addr, netmask: Ipv4Addr) -> Self {
+        Address::V4(NetworkAddress {
+            address,
+            netmask: Some(netmask),
+            associated_address: None,
+        })
+    }
+
+    pub fn v6(address: Ipv6Addr, prefix: u8) -> Self {
+        assert!(prefix <= 128);
+        Address::V6(NetworkAddress {
+            address,
+            netmask: Some(ipv6_netmask_from_prefix_len(prefix)),
+            associated_address: None,
+        })
+    }
+
+    pub fn mac(address: [u8; 6]) -> Self {
+        Address::Mac(address)
+    }
 }
 
 impl PartialEq<IpAddr> for Address {
@@ -259,24 +424,179 @@ impl PartialEq<IpAddr> for Address {
     }
 }
 
+impl From<NetworkAddress<Ipv4Addr>> for Address {
+    fn from(addr: NetworkAddress<Ipv4Addr>) -> Self {
+        Address::V4(addr)
+    }
+}
+
+impl From<NetworkAddress<Ipv6Addr>> for Address {
+    fn from(addr: NetworkAddress<Ipv6Addr>) -> Self {
+        Address::V6(addr)
+    }
+}
+
+impl From<[u8; 6]> for Address {
+    fn from(addr: [u8; 6]) -> Self {
+        Address::Mac(addr)
+    }
+}
+
 mod sealed {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     /// A trait for types that can be converted to and from `IpAddr`.
-    pub trait NetworkAddressable: Into<IpAddr> {}
+    pub trait NetworkAddressable: Into<IpAddr> + Addressable {}
 
+    impl NetworkAddressable for IpAddr {}
     impl NetworkAddressable for Ipv4Addr {}
     impl NetworkAddressable for Ipv6Addr {}
+    impl NetworkAddressable for super::NetworkAddress<Ipv4Addr> {}
+    impl NetworkAddressable for super::NetworkAddress<Ipv6Addr> {}
+    impl NetworkAddressable for super::NetworkAddress<IpAddr> {}
 
-    pub trait Addressable {}
+    pub trait SingleAddressable: Ord + Clone {
+        fn family(&self) -> super::AddressFamily;
+    }
+    impl SingleAddressable for super::Address {
+        fn family(&self) -> super::AddressFamily {
+            match self {
+                super::Address::V4(_) => super::AddressFamily::V4,
+                super::Address::V6(_) => super::AddressFamily::V6,
+                super::Address::Mac(_) => super::AddressFamily::Mac,
+            }
+        }
+    }
+    impl<A: Addressable> SingleAddressable for super::Interface<A>
+    where
+        A: SingleAddressable,
+    {
+        fn family(&self) -> super::AddressFamily {
+            self.address.family()
+        }
+    }
+    impl SingleAddressable for IpAddr {
+        fn family(&self) -> super::AddressFamily {
+            match self {
+                IpAddr::V4(_) => super::AddressFamily::V4,
+                IpAddr::V6(_) => super::AddressFamily::V6,
+            }
+        }
+    }
+    impl SingleAddressable for Ipv4Addr {
+        fn family(&self) -> super::AddressFamily {
+            super::AddressFamily::V4
+        }
+    }
+    impl SingleAddressable for Ipv6Addr {
+        fn family(&self) -> super::AddressFamily {
+            super::AddressFamily::V6
+        }
+    }
+    impl SingleAddressable for super::NetworkAddress<Ipv4Addr> {
+        fn family(&self) -> super::AddressFamily {
+            super::AddressFamily::V4
+        }
+    }
+    impl SingleAddressable for super::NetworkAddress<Ipv6Addr> {
+        fn family(&self) -> super::AddressFamily {
+            super::AddressFamily::V6
+        }
+    }
+    impl SingleAddressable for super::NetworkAddress<IpAddr> {
+        fn family(&self) -> super::AddressFamily {
+            match self.address {
+                IpAddr::V4(_) => super::AddressFamily::V4,
+                IpAddr::V6(_) => super::AddressFamily::V6,
+            }
+        }
+    }
 
-    impl Addressable for super::Address {}
-    impl Addressable for super::Addresses {}
+    pub trait Addressable {
+        type Address: SingleAddressable;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)>;
+    }
+
+    impl Addressable for super::Address {
+        type Address = super::Address;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            match self {
+                super::Address::V4(addr) => [(super::AddressFamily::V4, (addr).into())].into_iter(),
+                super::Address::V6(addr) => [(super::AddressFamily::V6, (addr).into())].into_iter(),
+                super::Address::Mac(addr) => {
+                    [(super::AddressFamily::Mac, (addr).into())].into_iter()
+                }
+            }
+        }
+    }
+
+    impl<A: SingleAddressable> Addressable for super::Addresses<A> {
+        type Address = A;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            self.addresses.into_iter().flat_map(|(family, addresses)| {
+                addresses.into_iter().map(move |address| (family, address))
+            })
+        }
+    }
+
+    impl<A: Addressable> Addressable for super::Interface<A> {
+        type Address = A::Address;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            self.address.iter()
+        }
+    }
+
+    impl Addressable for IpAddr {
+        type Address = IpAddr;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            match self {
+                IpAddr::V4(addr) => [(super::AddressFamily::V4, (addr).into())].into_iter(),
+                IpAddr::V6(addr) => [(super::AddressFamily::V6, (addr).into())].into_iter(),
+            }
+        }
+    }
+
+    impl Addressable for Ipv4Addr {
+        type Address = IpAddr;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            [(super::AddressFamily::V4, (self).into())].into_iter()
+        }
+    }
+
+    impl Addressable for Ipv6Addr {
+        type Address = IpAddr;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            [(super::AddressFamily::V6, (self).into())].into_iter()
+        }
+    }
+
+    impl Addressable for super::NetworkAddress<Ipv4Addr> {
+        type Address = IpAddr;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            [(super::AddressFamily::V4, (self.address).into())].into_iter()
+        }
+    }
+    impl Addressable for super::NetworkAddress<Ipv6Addr> {
+        type Address = IpAddr;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            [(super::AddressFamily::V6, (self.address).into())].into_iter()
+        }
+    }
+    impl Addressable for super::NetworkAddress<IpAddr> {
+        type Address = IpAddr;
+        fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
+            let family = match &self.address {
+                IpAddr::V4(_) => super::AddressFamily::V4,
+                IpAddr::V6(_) => super::AddressFamily::V6,
+            };
+            [(family, self.address)].into_iter()
+        }
+    }
 }
 
 /// Represents a network address of a given type.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NetworkAddress<T: sealed::NetworkAddressable> {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NetworkAddress<T: sealed::NetworkAddressable = IpAddr> {
     /// The address associated with the interface.
     pub address: T,
     /// The netmask associated with the interface.
@@ -286,6 +606,24 @@ pub struct NetworkAddress<T: sealed::NetworkAddressable> {
     /// is the broadcast address. For point-to-point interfaces, this is the
     /// peer address.
     pub associated_address: Option<T>,
+}
+
+impl From<NetworkAddress<Ipv4Addr>> for IpAddr {
+    fn from(val: NetworkAddress<Ipv4Addr>) -> Self {
+        val.address.into()
+    }
+}
+
+impl From<NetworkAddress<Ipv6Addr>> for IpAddr {
+    fn from(val: NetworkAddress<Ipv6Addr>) -> Self {
+        val.address.into()
+    }
+}
+
+impl From<NetworkAddress<IpAddr>> for IpAddr {
+    fn from(val: NetworkAddress<IpAddr>) -> Self {
+        val.address
+    }
 }
 
 enum InterfaceFilterCriteria {
@@ -437,7 +775,7 @@ impl InterfaceFilter {
     /// [`Addresses::get`] returns the first address for a family. Use
     /// [`Addresses::get_all`] or iterate the [`Addresses`] value to access all
     /// collected addresses for that family.
-    pub fn collect(self) -> std::io::Result<Interfaces> {
+    pub fn collect(self) -> std::io::Result<Interfaces<Addresses>> {
         Ok(self.get()?.collect())
     }
 }
@@ -830,6 +1168,59 @@ mod tests {
                 // Loopback interfaces typically don't have associated addresses
                 // This is expected behavior
             }
+        }
+    }
+
+    #[test]
+    fn test_iteration() {
+        use std::str::FromStr;
+
+        let ipv6_1 = Ipv6Addr::from_str("fec0::f1bf:37fc:1ced:91e6").unwrap();
+        let ipv6_2 = Ipv6Addr::from_str("fe80::f1bf:37fc:1ced:91e6").unwrap();
+
+        let iface_1 = Interface::new("iface_1", Address::v6(ipv6_1, 64)).with_index(1);
+        let iface_2 = Interface::new("iface_1", Address::v6(ipv6_2, 64)).with_index(1);
+        let raw_interfaces = [iface_1, iface_2];
+
+        let interfaces: Interfaces<Addresses> = raw_interfaces.clone().into_iter().collect();
+        assert_eq!(interfaces.len(), 1);
+
+        let addresses: Addresses = interfaces.into_values().collect();
+        assert_eq!(addresses.len(), 2);
+    }
+
+    #[test]
+    fn ipv6_netmask_from_prefix_len_known_values() {
+        let cases: &[(u8, &str)] = &[
+            (0, "::"),
+            (1, "8000::"),
+            (2, "c000::"),
+            (3, "e000::"),
+            (4, "f000::"),
+            (5, "f800::"),
+            (6, "fc00::"),
+            (7, "fe00::"),
+            (8, "ff00::"),
+            (9, "ff80::"),
+            (10, "ffc0::"),
+            (15, "fffe::"),
+            (16, "ffff::"),
+            (48, "ffff:ffff:ffff::"),
+            (64, "ffff:ffff:ffff:ffff::"),
+            (65, "ffff:ffff:ffff:ffff:8000::"),
+            (96, "ffff:ffff:ffff:ffff:ffff:ffff::"),
+            (127, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe"),
+            (128, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+            (200, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+            (255, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
+        ];
+
+        for &(prefix, expected) in cases {
+            assert_eq!(
+                ipv6_netmask_from_prefix_len(prefix),
+                expected.parse::<Ipv6Addr>().unwrap(),
+                "ipv6_netmask_from_prefix_len({prefix}) should be {expected}"
+            );
         }
     }
 }

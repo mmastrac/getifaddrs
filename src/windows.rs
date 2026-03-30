@@ -1,11 +1,11 @@
 use super::{
-    Address, AddressFamily, Interface, InterfaceFilter, InterfaceFilterCriteria, InterfaceFlags,
-    InterfaceIndex, NetworkAddress,
+    ipv6_netmask_from_prefix_len, Address, AddressFamily, Interface, InterfaceFilter,
+    InterfaceFilterCriteria, InterfaceFlags, InterfaceIndex, NetworkAddress,
 };
 use std::{
     ffi::OsString,
     io,
-    net::{IpAddr, Ipv6Addr},
+    net::IpAddr,
     os::windows::prelude::OsStringExt,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::{
@@ -291,24 +291,11 @@ fn luid_to_name_and_index(luid: NET_LUID_LH) -> (String, Option<u32>) {
                 .into_owned();
             (name, Some(if_index))
         } else {
-            (format!("if{:#x}", luid_value), Some(if_index))
+            (format!("if{luid_value:#x}"), Some(if_index))
         }
     } else {
-        (format!("if{:#x}", luid_value), None)
+        (format!("if{luid_value:#x}"), None)
     }
-}
-
-/// Converts an IPv6 prefix length (0–128) to the corresponding netmask.
-fn prefix_length_to_ipv6_mask(prefix_len: u8) -> Ipv6Addr {
-    let prefix_len = prefix_len.min(128) as usize;
-    let mut bytes = [0u8; 16];
-    let full_bytes = prefix_len / 8;
-    let remainder = prefix_len % 8;
-    bytes[..full_bytes].fill(0xff);
-    if remainder > 0 {
-        bytes[full_bytes] = 0xffu8 << (8 - remainder);
-    }
-    Ipv6Addr::from(bytes)
 }
 
 fn convert_to_flags(adapter: &IP_ADAPTER_ADDRESSES_LH) -> InterfaceFlags {
@@ -362,7 +349,7 @@ fn convert_to_interface(
             }
             Some(IpAddr::V4(std::net::Ipv4Addr::from(mask.to_be())))
         }
-        IpAddr::V6(_) => Some(IpAddr::V6(prefix_length_to_ipv6_mask(
+        IpAddr::V6(_) => Some(IpAddr::V6(ipv6_netmask_from_prefix_len(
             unicast_addr.OnLinkPrefixLength,
         ))),
     };
@@ -421,6 +408,7 @@ fn convert_to_interface(
         address,
         flags,
         index,
+        _unconstructable: std::marker::PhantomData,
     })
 }
 
@@ -452,6 +440,7 @@ fn convert_to_interface_mac(adapter: &IP_ADAPTER_ADDRESSES_LH) -> io::Result<Opt
         address: Address::Mac(mac_address),
         flags,
         index,
+        _unconstructable: std::marker::PhantomData,
     }))
 }
 
@@ -516,46 +505,3 @@ pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<InterfaceIndex> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_prefix_length_to_ipv6_mask() {
-        let cases: &[(u8, &str)] = &[
-            (0, "::"),
-            // Partial first byte
-            (1, "8000::"),
-            (2, "c000::"),
-            (3, "e000::"),
-            (4, "f000::"),
-            (5, "f800::"),
-            (6, "fc00::"),
-            (7, "fe00::"),
-            // Byte-aligned cases
-            (8, "ff00::"),
-            (16, "ffff::"),
-            (48, "ffff:ffff:ffff::"),
-            (64, "ffff:ffff:ffff:ffff::"),
-            (96, "ffff:ffff:ffff:ffff:ffff:ffff::"),
-            // Crossing a byte boundary
-            (9, "ff80::"),
-            (10, "ffc0::"),
-            (15, "fffe::"),
-            // Values near the end
-            (127, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe"),
-            (128, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-            // Values above 128 are clamped
-            (200, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-            (255, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"),
-        ];
-
-        for &(prefix, expected) in cases {
-            assert_eq!(
-                prefix_length_to_ipv6_mask(prefix),
-                expected.parse::<Ipv6Addr>().unwrap(),
-                "prefix_length_to_ipv6_mask({prefix}) should be {expected}"
-            );
-        }
-    }
-}
