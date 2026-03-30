@@ -5,7 +5,7 @@ use super::{
 use std::{
     ffi::OsString,
     io,
-    net::{IpAddr, Ipv6Addr},
+    net::IpAddr,
     os::windows::prelude::OsStringExt,
 };
 use windows_sys::Win32::NetworkManagement::IpHelper::{
@@ -291,10 +291,10 @@ fn luid_to_name_and_index(luid: NET_LUID_LH) -> (String, Option<u32>) {
                 .into_owned();
             (name, Some(if_index))
         } else {
-            (format!("if{:#x}", luid_value), Some(if_index))
+            (format!("if{luid_value:#x}"), Some(if_index))
         }
     } else {
-        (format!("if{:#x}", luid_value), None)
+        (format!("if{luid_value:#x}"), None)
     }
 }
 
