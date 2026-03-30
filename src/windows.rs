@@ -421,6 +421,7 @@ fn convert_to_interface(
         address,
         flags,
         index,
+        _unconstructable: std::marker::PhantomData,
     })
 }
 
