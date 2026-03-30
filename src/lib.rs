@@ -292,9 +292,8 @@ pub enum AddressFamily {
     Mac,
 }
 
-/// IPv6 CIDR netmask: the first `prefix_len` bits are one, the rest zero (`Ipv6Addr::from(u128)` is IETF / big-endian).
-///
-/// Prefix lengths above `128` are clamped (matches Windows on-link prefix APIs).
+/// IPv6 CIDR netmask: the first `prefix_len` bits are one, the rest zero
+/// (`Ipv6Addr::from(u128)` is IETF / big-endian).
 fn ipv6_netmask_from_prefix_len(prefix_len: u8) -> Ipv6Addr {
     let prefix_len = prefix_len.min(128);
     let mask = match prefix_len {
