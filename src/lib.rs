@@ -158,8 +158,8 @@ impl<A: sealed::SingleAddressable> Addresses<A> {
     /// To count total individual addresses, iterate and sum the slice lengths.
     pub fn len(&self) -> usize {
         self.addresses
-            .iter()
-            .map(|(_, addresses)| addresses.len())
+            .values()
+            .map(|addresses| addresses.len())
             .sum()
     }
 
@@ -396,7 +396,7 @@ impl Address {
         }
         // Fill the top remaining bits
         if prefix % 8 != 0 {
-            raw_ipv6[(prefix / 8) as usize + 1 as usize] = (1 << (8 - (prefix % 8))) - 1;
+            raw_ipv6[(prefix / 8) as usize + 1] = (1 << (8 - (prefix % 8))) - 1;
         }
         Address::V6(NetworkAddress {
             address,
@@ -501,7 +501,10 @@ mod sealed {
     }
     impl SingleAddressable for super::NetworkAddress<IpAddr> {
         fn family(&self) -> super::AddressFamily {
-            super::AddressFamily::V4
+            match self.address {
+                IpAddr::V4(_) => super::AddressFamily::V4,
+                IpAddr::V6(_) => super::AddressFamily::V6,
+            }
         }
     }
 
@@ -578,7 +581,11 @@ mod sealed {
     impl Addressable for super::NetworkAddress<IpAddr> {
         type Address = IpAddr;
         fn iter(self) -> impl IntoIterator<Item = (super::AddressFamily, Self::Address)> {
-            [(super::AddressFamily::V4, (self.address).into())].into_iter()
+            let family = match &self.address {
+                IpAddr::V4(_) => super::AddressFamily::V4,
+                IpAddr::V6(_) => super::AddressFamily::V6,
+            };
+            [(family, self.address)].into_iter()
         }
     }
 }
@@ -597,21 +604,21 @@ pub struct NetworkAddress<T: sealed::NetworkAddressable = IpAddr> {
     pub associated_address: Option<T>,
 }
 
-impl Into<IpAddr> for NetworkAddress<Ipv4Addr> {
-    fn into(self) -> IpAddr {
-        self.address.into()
+impl From<NetworkAddress<Ipv4Addr>> for IpAddr {
+    fn from(val: NetworkAddress<Ipv4Addr>) -> Self {
+        val.address.into()
     }
 }
 
-impl Into<IpAddr> for NetworkAddress<Ipv6Addr> {
-    fn into(self) -> IpAddr {
-        self.address.into()
+impl From<NetworkAddress<Ipv6Addr>> for IpAddr {
+    fn from(val: NetworkAddress<Ipv6Addr>) -> Self {
+        val.address.into()
     }
 }
 
-impl Into<IpAddr> for NetworkAddress<IpAddr> {
-    fn into(self) -> IpAddr {
-        self.address.into()
+impl From<NetworkAddress<IpAddr>> for IpAddr {
+    fn from(val: NetworkAddress<IpAddr>) -> Self {
+        val.address
     }
 }
 
