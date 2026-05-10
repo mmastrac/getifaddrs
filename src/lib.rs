@@ -175,7 +175,7 @@ impl<A: sealed::SingleAddressable> Addresses<A> {
     /// Returns an iterator over the addresses in the collection.
     pub fn iter(&self) -> AddressesIter<'_, A> {
         AddressesIter {
-            iter: self.addresses.values(),
+            iter: self.addresses.values().flatten(),
         }
     }
 
@@ -230,25 +230,26 @@ impl<'a, A> Iterator for FamiliesIter<'a, A> {
     }
 }
 
-/// An iterator over the addresses in a [`Addresses`] collection.
+/// Iterator over [`Addresses`]. The address families are flattened into a
+/// single iterator. Use [`Address::family`] to get the family of each address.
 pub struct AddressesIter<'a, A = Address> {
-    iter: std::collections::btree_map::Values<'a, AddressFamily, Vec<A>>,
+    iter: std::iter::Flatten<std::collections::btree_map::Values<'a, AddressFamily, Vec<A>>>,
 }
 
-impl<'a> Iterator for AddressesIter<'a> {
-    type Item = &'a [Address];
+impl<'a, A> Iterator for AddressesIter<'a, A> {
+    type Item = &'a A;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|v| &**v)
+        self.iter.next()
     }
 }
 
-impl<'a> IntoIterator for &'a Addresses {
-    type Item = &'a [Address];
-    type IntoIter = AddressesIter<'a>;
+impl<'a, A: sealed::SingleAddressable> IntoIterator for &'a Addresses<A> {
+    type Item = &'a A;
+    type IntoIter = AddressesIter<'a, A>;
     fn into_iter(self) -> Self::IntoIter {
         AddressesIter {
-            iter: self.addresses.values(),
+            iter: self.addresses.values().flatten(),
         }
     }
 }
