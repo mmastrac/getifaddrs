@@ -2,12 +2,7 @@ use super::{
     ipv6_netmask_from_prefix_len, Address, AddressFamily, Interface, InterfaceFilter,
     InterfaceFilterCriteria, InterfaceFlags, InterfaceIndex, NetworkAddress,
 };
-use std::{
-    ffi::OsString,
-    io,
-    net::IpAddr,
-    os::windows::prelude::OsStringExt,
-};
+use std::{ffi::OsString, io, net::IpAddr, os::windows::prelude::OsStringExt};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     if_indextoname, if_nametoindex, ConvertInterfaceLuidToIndex, ConvertLengthToIpv4Mask,
     GetAdaptersAddresses, GetNumberOfInterfaces, GET_ADAPTERS_ADDRESSES_FLAGS, IF_TYPE_IEEE80211,
@@ -504,4 +499,3 @@ pub fn _if_nametoindex(name: impl AsRef<str>) -> io::Result<InterfaceIndex> {
         Ok(result as _)
     }
 }
-

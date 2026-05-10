@@ -156,13 +156,20 @@ impl<A: sealed::SingleAddressable> Addresses<A> {
         self.addresses.is_empty() || self.len() == 0
     }
 
-    /// Returns the number of address families represented in the collection.
-    /// To count total individual addresses, iterate and sum the slice lengths.
+    /// Returns the total number of addresses stored in the collection, counting every
+    /// entry across all [`AddressFamily`] buckets (not the number of distinct families).
     pub fn len(&self) -> usize {
         self.addresses
             .values()
             .map(|addresses| addresses.len())
             .sum()
+    }
+
+    /// Returns an iterator over the families in the collection.
+    pub fn families(&self) -> FamiliesIter<'_, A> {
+        FamiliesIter {
+            iter: self.addresses.keys(),
+        }
     }
 
     /// Returns an iterator over the addresses in the collection.
@@ -207,6 +214,19 @@ impl<X, A: sealed::Addressable> FromIterator<(X, A)> for Addresses<A::Address> {
             }
         }
         Addresses { addresses: map }
+    }
+}
+
+/// An iterator over the families in a [`Addresses`] collection.
+pub struct FamiliesIter<'a, A = Address> {
+    iter: std::collections::btree_map::Keys<'a, AddressFamily, Vec<A>>,
+}
+
+impl<'a, A> Iterator for FamiliesIter<'a, A> {
+    type Item = AddressFamily;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().copied()
     }
 }
 
@@ -1187,6 +1207,7 @@ mod tests {
 
         let addresses: Addresses = interfaces.into_values().collect();
         assert_eq!(addresses.len(), 2);
+        assert_eq!(addresses.families().count(), 1);
     }
 
     #[test]
