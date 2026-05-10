@@ -156,8 +156,8 @@ impl<A: sealed::SingleAddressable> Addresses<A> {
         self.addresses.is_empty() || self.len() == 0
     }
 
-    /// Returns the total number of addresses stored in the collection, counting every
-    /// entry across all [`AddressFamily`] buckets (not the number of distinct families).
+    /// Returns the total number of addresses stored in the collection, counting
+    /// every entry across all [`AddressFamily`] buckets.
     pub fn len(&self) -> usize {
         self.addresses
             .values()
