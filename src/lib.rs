@@ -165,10 +165,24 @@ impl<A: sealed::SingleAddressable> Addresses<A> {
             .sum()
     }
 
-    /// Returns an iterator over the families in the collection.
+    /// Returns an iterator over the families and the addresses in the
+    /// collection.
+    ///
+    /// ```rust
+    /// # use getifaddrs::{getifaddrs, Addresses};
+    /// # fn main() -> std::io::Result<()> {
+    /// let addresses: Addresses = getifaddrs()?.collect();
+    /// for (family, addresses) in addresses.families() {
+    ///     println!("Family: {:?}", family);
+    ///     for address in addresses {
+    ///         println!("  Address: {:?}", address);
+    ///     }
+    /// }
+    /// # Ok(()) }
+    /// ```
     pub fn families(&self) -> FamiliesIter<'_, A> {
         FamiliesIter {
-            iter: self.addresses.keys(),
+            iter: self.addresses.iter(),
         }
     }
 
@@ -219,14 +233,16 @@ impl<X, A: sealed::Addressable> FromIterator<(X, A)> for Addresses<A::Address> {
 
 /// An iterator over the families in a [`Addresses`] collection.
 pub struct FamiliesIter<'a, A = Address> {
-    iter: std::collections::btree_map::Keys<'a, AddressFamily, Vec<A>>,
+    iter: std::collections::btree_map::Iter<'a, AddressFamily, Vec<A>>,
 }
 
 impl<'a, A> Iterator for FamiliesIter<'a, A> {
-    type Item = AddressFamily;
+    type Item = (AddressFamily, &'a [A]);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().copied()
+        self.iter
+            .next()
+            .map(|(family, addresses)| (*family, addresses.as_slice()))
     }
 }
 
